@@ -1,7 +1,9 @@
-// @growth-os/ui
-//
-// Package skeleton established in Phase 0 (work item 0.1).
-// Implementation lands in Phase 0, work item 0.6.
-// The exports map in package.json is the package's only public surface.
-
-export {};
+/**
+ * @growth-os/ui — the Growth OS design system.
+ *
+ * Tokens → primitives → patterns (13-design-system.md §6). Primitives are presentational:
+ * they receive data and callbacks, they do not fetch, and they contain no business rules.
+ * dependency-cruiser enforces that this package never imports a business module.
+ */
+export { type ClassValue, cx } from './lib/cx.js';
+export * from './primitives/index.js';

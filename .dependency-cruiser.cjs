@@ -73,7 +73,14 @@ module.exports = {
       severity: 'warn',
       from: {
         orphan: true,
-        pathNot: ['\\.d\\.ts$', '(^|/)index\\.ts$', '\\.config\\.(ts|js|cjs|mjs)$'],
+        pathNot: [
+          '\\.d\\.ts$',
+          '(^|/)index\\.ts$',
+          '\\.config\\.(ts|js|cjs|mjs)$',
+          // Referenced by a tool's configuration (vitest setupFiles), not by an import, so
+          // dependency-cruiser cannot see the edge and reports a false orphan.
+          '(^|/)testing/setup\\.ts$',
+        ],
       },
       to: {},
     },

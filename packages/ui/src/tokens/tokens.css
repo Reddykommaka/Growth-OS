@@ -1,0 +1,302 @@
+/*
+ * Growth OS design tokens.
+ *
+ * 13-design-system.md §2. Three tiers: primitive -> semantic -> component.
+ * Product code uses SEMANTIC tokens only; a raw hex or an arbitrary Tailwind value fails
+ * lint. That constraint is what keeps a hundred screens visually coherent.
+ *
+ * Themes swap by redefining variables, never by shipping a second stylesheet.
+ */
+
+/* ---------------------------------------------------------------- tier 1: primitives */
+:root {
+  /* A near-neutral greyscale carries ~90% of the interface. Slightly cool, so the single
+     accent reads as deliberate rather than as one hue among several. */
+  --gray-0: #ffffff;
+  --gray-25: #fcfcfd;
+  --gray-50: #f7f8fa;
+  --gray-100: #eef0f4;
+  --gray-150: #e3e6ec;
+  --gray-200: #d5d9e2;
+  --gray-300: #b6bcc9;
+  --gray-400: #8b93a5;
+  --gray-500: #6b7385;
+  --gray-600: #545b6b;
+  --gray-700: #3f4552;
+  --gray-750: #333844;
+  --gray-800: #272b35;
+  --gray-850: #1e222a;
+  --gray-900: #16191f;
+  --gray-950: #0e1014;
+
+  /* ONE accent, used for interactive affordance and the primary action only. If everything
+     is accented, nothing is (13-design-system.md §2). */
+  --accent-100: #dbe7ff;
+  --accent-200: #b8d0ff;
+  --accent-400: #5b8def;
+  --accent-500: #3a72e8;
+  --accent-600: #2b5cd0;
+  --accent-700: #2149a8;
+
+  /* Status colours are reserved for status. */
+  --green-100: #d8f3e3;
+  --green-500: #1a9c5b;
+  --green-600: #14804a;
+  --amber-100: #fdeecd;
+  --amber-500: #c98a09;
+  --amber-600: #a06e05;
+  --red-100: #fde0df;
+  --red-500: #d33b32;
+  --red-600: #b02e26;
+  --blue-100: #d9ecfd;
+  --blue-500: #1a7fc1;
+  --blue-600: #14669c;
+
+  /* 4px base grid — every dimension is a multiple (13-design-system.md §2). */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Small and few. The "everything is a 16px rounded card" look is explicitly out. */
+  --radius-sm: 3px;
+  --radius-md: 4px; /* controls */
+  --radius-lg: 6px; /* containers */
+  --radius-full: 9999px;
+
+  /* 13px base: this is an application, not a document. */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --text-2xs: 0.6875rem; /* 11px */
+  --text-xs: 0.75rem; /* 12px */
+  --text-sm: 0.8125rem; /* 13px — base */
+  --text-md: 0.9375rem; /* 15px */
+  --text-lg: 1.125rem; /* 18px */
+  --text-xl: 1.5rem; /* 24px */
+  --text-2xl: 2rem; /* 32px */
+
+  /* Weight carries hierarchy more than size does. */
+  --weight-regular: 450;
+  --weight-medium: 550;
+  --weight-strong: 650;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+
+  /* Motion signals cause and effect; it never entertains. */
+  --duration-fast: 120ms; /* state changes */
+  --duration-base: 180ms; /* surfaces */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ---------------------------------------------------------------- tier 2: semantic */
+/* Light is the base. Every colour is defined HERE, so no token exists only inside a media
+   or [data-theme] block. */
+:root {
+  --surface-base: var(--gray-50);
+  --surface-raised: var(--gray-0);
+  --surface-sunken: var(--gray-100);
+  --surface-overlay: var(--gray-0);
+  --surface-hover: var(--gray-100);
+  --surface-active: var(--gray-150);
+  --surface-selected: var(--accent-100);
+
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-tertiary: var(--gray-400);
+  --text-inverse: var(--gray-0);
+  --text-accent: var(--accent-600);
+
+  /* Elevation is borders first, shadow rarely (13-design-system.md §2). */
+  --border-subtle: var(--gray-150);
+  --border-strong: var(--gray-300);
+  --border-accent: var(--accent-500);
+  --border-focus: var(--accent-500);
+
+  --accent: var(--accent-500);
+  --accent-hover: var(--accent-600);
+  --accent-active: var(--accent-700);
+  --accent-contrast: var(--gray-0);
+
+  --status-positive: var(--green-600);
+  --status-negative: var(--red-600);
+  --status-warning: var(--amber-600);
+  --status-info: var(--blue-600);
+  --status-positive-surface: var(--green-100);
+  --status-negative-surface: var(--red-100);
+  --status-warning-surface: var(--amber-100);
+  --status-info-surface: var(--blue-100);
+
+  /* One shadow token, for genuinely floating surfaces only. Nothing on a static panel. */
+  --shadow-overlay: 0 8px 24px -6px rgb(14 16 20 / 0.16), 0 2px 6px -2px rgb(14 16 20 / 0.08);
+
+  --focus-ring: 0 0 0 2px var(--surface-raised), 0 0 0 4px var(--border-focus);
+}
+
+/* Dark: redefine only the semantic tier. Guarded so an explicit light choice still wins. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-base: var(--gray-950);
+    --surface-raised: var(--gray-900);
+    --surface-sunken: var(--gray-850);
+    --surface-overlay: var(--gray-850);
+    --surface-hover: var(--gray-800);
+    --surface-active: var(--gray-750);
+    --surface-selected: var(--accent-700);
+
+    --text-primary: var(--gray-50);
+    --text-secondary: var(--gray-300);
+    --text-tertiary: var(--gray-500);
+    --text-inverse: var(--gray-950);
+    --text-accent: var(--accent-400);
+
+    --border-subtle: var(--gray-800);
+    --border-strong: var(--gray-700);
+    --border-accent: var(--accent-400);
+    --border-focus: var(--accent-400);
+
+    /* --accent and --accent-contrast are unchanged in dark; declaring them here but not
+       in the explicit [data-theme='dark'] block below would make a manual toggle differ
+       from system dark. */
+    --accent-hover: var(--accent-400);
+    --accent-active: var(--accent-200);
+
+    --status-positive: var(--green-500);
+    --status-negative: var(--red-500);
+    --status-warning: var(--amber-500);
+    --status-info: var(--blue-500);
+    --status-positive-surface: color-mix(in srgb, var(--green-500) 18%, var(--gray-900));
+    --status-negative-surface: color-mix(in srgb, var(--red-500) 18%, var(--gray-900));
+    --status-warning-surface: color-mix(in srgb, var(--amber-500) 18%, var(--gray-900));
+    --status-info-surface: color-mix(in srgb, var(--blue-500) 18%, var(--gray-900));
+
+    --shadow-overlay: 0 8px 24px -6px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.3);
+  }
+}
+
+/* Explicit dark: redefined again so a toggle wins in both directions. */
+:root[data-theme="dark"] {
+  --surface-base: var(--gray-950);
+  --surface-raised: var(--gray-900);
+  --surface-sunken: var(--gray-850);
+  --surface-overlay: var(--gray-850);
+  --surface-hover: var(--gray-800);
+  --surface-active: var(--gray-750);
+  --surface-selected: var(--accent-700);
+
+  --text-primary: var(--gray-50);
+  --text-secondary: var(--gray-300);
+  --text-tertiary: var(--gray-500);
+  --text-inverse: var(--gray-950);
+  --text-accent: var(--accent-400);
+
+  --border-subtle: var(--gray-800);
+  --border-strong: var(--gray-700);
+  --border-accent: var(--accent-400);
+  --border-focus: var(--accent-400);
+
+  --accent-hover: var(--accent-400);
+  --accent-active: var(--accent-200);
+
+  --status-positive: var(--green-500);
+  --status-negative: var(--red-500);
+  --status-warning: var(--amber-500);
+  --status-info: var(--blue-500);
+  --status-positive-surface: color-mix(in srgb, var(--green-500) 18%, var(--gray-900));
+  --status-negative-surface: color-mix(in srgb, var(--red-500) 18%, var(--gray-900));
+  --status-warning-surface: color-mix(in srgb, var(--amber-500) 18%, var(--gray-900));
+  --status-info-surface: color-mix(in srgb, var(--blue-500) 18%, var(--gray-900));
+
+  --shadow-overlay: 0 8px 24px -6px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.3);
+}
+
+/* ---------------------------------------------------------------- tier 3: component */
+/* Density is a token set, not a prop threaded through every component. A social calendar
+   and a CRM table have genuinely different density needs (13-design-system.md §3). */
+:root,
+:root[data-density="default"] {
+  --control-height: 28px;
+  --control-height-sm: 24px;
+  --control-height-lg: 32px;
+  --control-padding-x: var(--space-3);
+  --table-row-height: 32px;
+  --field-height: 28px;
+  --sidebar-width: 240px;
+}
+:root[data-density="compact"] {
+  --control-height: 24px;
+  --control-height-sm: 20px;
+  --control-height-lg: 28px;
+  --control-padding-x: var(--space-2);
+  --table-row-height: 26px;
+  --field-height: 24px;
+  --sidebar-width: 216px;
+}
+:root[data-density="comfortable"] {
+  --control-height: 34px;
+  --control-height-sm: 28px;
+  --control-height-lg: 40px;
+  --control-padding-x: var(--space-4);
+  --table-row-height: 44px;
+  --field-height: 34px;
+  --sidebar-width: 264px;
+}
+
+/* ---------------------------------------------------------------- base */
+html {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  /* Contextual alternates off, tabular figures on by default: numbers must align in a
+     dense enterprise interface. Non-tabular figures in a metrics column is the most common
+     tell of an unconsidered dashboard (13-design-system.md §2). */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* Focus is never removed — it is the only affordance a keyboard user has. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+/*
+ * The one legitimate use of !important in the system.
+ *
+ * A reduced-motion preference is a user accessibility setting, and it must win over any
+ * component-level animation regardless of specificity — including animations declared by a
+ * third-party stylesheet we do not control. Losing this override can trigger vestibular
+ * symptoms in users who explicitly asked not to see motion, so the suppression below is
+ * deliberate and must not be "cleaned up".
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: user motion preference must win */
+    animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: user motion preference must win */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: user motion preference must win */
+    transition-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: user motion preference must win */
+    scroll-behavior: auto !important;
+  }
+}
