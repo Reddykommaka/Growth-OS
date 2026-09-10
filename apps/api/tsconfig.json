@@ -16,6 +16,18 @@
     },
     {
       "path": "../../packages/platform/errors"
+    },
+    {
+      "path": "../../packages/platform/db"
+    },
+    {
+      "path": "../../packages/platform/health"
+    },
+    {
+      "path": "../../packages/platform/telemetry"
+    },
+    {
+      "path": "../../packages/platform/types"
     }
   ]
 }

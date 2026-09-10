@@ -1,7 +1,8 @@
-// @growth-os/db
-//
-// Package skeleton established in Phase 0 (work item 0.1).
-// Implementation lands in Phase 0, work item 0.4.
-// The exports map in package.json is the package's only public surface.
-
-export {};
+/**
+ * @growth-os/db — database access foundations.
+ *
+ * Phase 0 provides the generated schema-version constants that /readyz compares against.
+ * The Drizzle client, tenant session and UnitOfWork land in Phase 1 alongside the first
+ * schema; there is nothing to wrap until tables exist.
+ */
+export { EXPECTED_SCHEMA_VERSION, KNOWN_MIGRATIONS } from './schema-version.js';

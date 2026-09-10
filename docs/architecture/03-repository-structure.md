@@ -33,6 +33,7 @@ growth-os/
 │   │   ├── files/                Storage port, S3 adapter, upload policy, scanning
 │   │   ├── search/               Search port, Postgres FTS adapter
 │   │   ├── i18n/                 Message catalogues, ICU formatting, timezone helpers
+│   │   ├── health/               Liveness and readiness checks (added in Phase 0, 0.8)
 │   │   └── automation/           Workflow definitions, runtime, step registry
 │   │
 │   ├── integrations/

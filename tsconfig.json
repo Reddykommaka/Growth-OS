@@ -111,6 +111,9 @@
     },
     {
       "path": "apps/link"
+    },
+    {
+      "path": "packages/platform/health"
     }
   ]
 }

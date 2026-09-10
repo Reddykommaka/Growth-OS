@@ -1,0 +1,25 @@
+{
+  "name": "@growth-os/health",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./checks": {
+      "types": "./dist/checks.d.ts",
+      "import": "./dist/checks.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "vitest": "5.0.0"
+  }
+}

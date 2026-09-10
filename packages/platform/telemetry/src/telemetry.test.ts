@@ -39,3 +39,32 @@ describe('currentTraceId', () => {
     expect(currentTraceId()).toBeUndefined();
   });
 });
+
+describe('telemetry never takes the process down', () => {
+  it('does not install a default exporter when no endpoint is configured', async () => {
+    // Regression test. NodeSDK installs default OTLP exporters aimed at localhost:4318 for
+    // traces, metrics and logs whenever none is supplied. The failed flush on shutdown
+    // crashed apps/api with ECONNREFUSED on SIGTERM, so every rolling deploy would have
+    // recorded a non-zero exit. Found by running the built binary, not by any unit test.
+    const { shutdownTelemetry, startTelemetry } = await import('./index.js');
+
+    startTelemetry({
+      serviceName: 'test',
+      serviceVersion: '0.0.0',
+      environment: 'test',
+      // deliberately no otlpEndpoint
+    });
+
+    expect(process.env['OTEL_TRACES_EXPORTER']).toBe('none');
+    expect(process.env['OTEL_METRICS_EXPORTER']).toBe('none');
+
+    // Must resolve, not reject, with no collector listening anywhere.
+    await expect(shutdownTelemetry()).resolves.toBeUndefined();
+  });
+
+  it('shutdown is idempotent', async () => {
+    const { shutdownTelemetry } = await import('./index.js');
+    await expect(shutdownTelemetry()).resolves.toBeUndefined();
+    await expect(shutdownTelemetry()).resolves.toBeUndefined();
+  });
+});

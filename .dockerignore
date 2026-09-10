@@ -1,0 +1,25 @@
+# Everything the build does not need. A smaller context is a faster, more cacheable build —
+# and node_modules must never be copied in, or the install layer is meaningless.
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+.turbo
+**/.turbo
+coverage
+**/coverage
+playwright-report
+**/playwright-report
+test-results
+**/test-results
+.git
+.github
+docs
+e2e
+infra/terraform
+*.md
+.env
+.env.*
+!.env.example

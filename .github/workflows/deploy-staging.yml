@@ -1,0 +1,140 @@
+name: Deploy staging
+
+# 12-devops-architecture.md §4:
+#   merge to main → build & sign image → migrate (discrete, gated) → deploy → smoke → soak
+#
+# The migration job is a SEPARATE step that must succeed before any replica starts. A failed
+# migration stops the deploy and the previous release keeps serving — safe because every
+# migration is expand/contract and backward compatible against the previous version.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Never two deploys at once: a second migration job racing the first is the fastest way to
+  # corrupt schema state.
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write   # OIDC to the cloud provider; no long-lived deploy credentials
+  packages: write
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.33.0'
+
+jobs:
+  build:
+    name: Build and sign images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    strategy:
+      matrix:
+        app: [api, web, worker, link]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          build-args: APP=${{ matrix.app }}
+          push: false          # Registry is provider-dependent — open question #7
+          load: true
+          tags: growth-os-${{ matrix.app }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # An SBOM and provenance attestation ship with the image so a later CVE can be
+          # answered without rebuilding to find out what is inside.
+          sbom: true
+          provenance: mode=max
+      - name: Smoke the image
+        run: |
+          # Prove the container starts and answers liveness before anything is deployed.
+          docker run -d --name probe -p 3000:3000 \
+            -e DATABASE_URL=postgres://unused \
+            -e SESSION_COOKIE_SECRET=$(head -c 32 /dev/zero | tr '\0' 'x') \
+            -e ENCRYPTION_MASTER_KEY=$(head -c 32 /dev/zero | tr '\0' 'y') \
+            growth-os-${{ matrix.app }}:${{ github.sha }} || true
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:3000/healthz; then echo " — liveness OK"; exit 0; fi
+            sleep 1
+          done
+          echo "Container did not become live within 20s"; docker logs probe; exit 1
+        if: matrix.app == 'api'
+
+  migrate:
+    name: Apply migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    environment: staging          # Requires the environment's protection rules to pass
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Report pending migrations
+        env:
+          DATABASE_MIGRATOR_URL: ${{ secrets.DATABASE_MIGRATOR_URL }}
+        run: node tools/scripts/migrate.mjs db/migrations --dry-run
+      - name: Apply
+        env:
+          # growth_os_migrator is the ONLY role with BYPASSRLS and is used nowhere else.
+          DATABASE_MIGRATOR_URL: ${{ secrets.DATABASE_MIGRATOR_URL }}
+        run: node tools/scripts/migrate.mjs db/migrations
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [build, migrate]
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+      - name: Terraform apply
+        run: |
+          echo "No provider is configured yet — open question #7 in"
+          echo "docs/architecture/15-risks.md §3. The image is built, signed and"
+          echo "migration-gated; wiring this step is a change of implementation, not of"
+          echo "interface (see infra/terraform/README.md)."
+          exit 0
+
+  smoke:
+    name: Post-deploy smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify the deployment is live and ready
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          if [ -z "$STAGING_URL" ]; then
+            echo "STAGING_URL is not set; nothing deployed to smoke."; exit 0
+          fi
+          # /readyz, not /healthz: liveness only proves the process started. Readiness proves
+          # the database is reachable AND the schema matches what this build expects.
+          curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "$STAGING_URL/readyz" | tee /tmp/readyz.json
+          node -e "
+            const r = require('/tmp/readyz.json');
+            if (r.status === 'fail') { console.error('readiness failed'); process.exit(1); }
+            if (r.checks['schema-version'].status !== 'pass') { console.error('schema mismatch'); process.exit(1); }
+            console.log('staging is ready at schema', r.checks['schema-version'].observedValue);
+          "
+          curl -fsS "$STAGING_URL/v1/ping"

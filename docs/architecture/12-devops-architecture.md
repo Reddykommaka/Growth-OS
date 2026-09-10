@@ -131,8 +131,24 @@ serializer so a secret cannot reach a log sink even if it reaches a log call.
 **Errors** — Sentry with release tracking, source maps and ownership routing per module.
 
 **Health** — `/healthz` (liveness, no dependencies) and `/readyz` (readiness: database,
-Redis, migration version). Readiness must check the migration version, or a replica running
-old code against a new schema will happily serve traffic.
+Redis, migration version).
+
+The schema comparison is **asymmetric**, and the asymmetry was settled during Phase 0
+implementation:
+
+| Deployed schema vs. the build | Readiness | Why |
+| --- | --- | --- |
+| Database **behind** the code | **fail** | The code will query a column that does not exist |
+| Database **matches** | pass | — |
+| Database **ahead** of the code | **pass** | Expand/contract guarantees every migration is safe against the previous application version, and this is the normal state during a rolling deploy. Failing here would remove the old replicas mid-deploy and turn a routine release into an outage |
+
+An earlier phrasing of this section — "a replica running old code against a new schema will
+happily serve traffic" — implied the ahead case should fail. It should not; that case is
+exactly what expand/contract exists to make safe.
+
+Redis is a **non-critical** check: it is never a system of record, so losing it costs
+throughput rather than correctness. Removing every replica from the load balancer because a
+cache is down converts a degradation into an outage.
 
 **Alerting** — SLO-based and burn-rate driven, so pages correlate with customer impact
 rather than with graphs moving:
