@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Growth OS — design system contrast and focus fixture</title>
+    <link rel="stylesheet" href="../../packages/ui/src/tokens/tokens.css" />
+    <link rel="stylesheet" href="../../packages/ui/src/primitives/primitives.css" />
+  </head>
+  <body>
+    <!--
+      A real page, not a component in isolation: landmarks, a heading and a lang attribute
+      exist so the axe page-scope rules disabled in jsdom can be assessed truthfully here
+      (11-testing-architecture.md §6).
+
+      This fixture exercises the STYLESHEETS. React behaviour is covered by the 97 component
+      tests; what jsdom cannot judge is computed colour, so that is what this is for.
+    -->
+    <main style="padding: var(--space-8); max-width: 60rem; margin-inline: auto">
+      <h1 style="font-size: var(--text-xl); margin-bottom: var(--space-6)">
+        Design system surfaces
+      </h1>
+
+      <section aria-labelledby="buttons-heading">
+        <h2 id="buttons-heading" style="font-size: var(--text-md)">Buttons</h2>
+        <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-block: var(--space-4)">
+          <button type="button" class="gos-button gos-button--primary" data-testid="btn-primary">
+            Primary
+          </button>
+          <button type="button" class="gos-button gos-button--secondary" data-testid="btn-secondary">
+            Secondary
+          </button>
+          <button type="button" class="gos-button gos-button--ghost" data-testid="btn-ghost">
+            Ghost
+          </button>
+          <button type="button" class="gos-button gos-button--danger" data-testid="btn-danger">
+            Danger
+          </button>
+          <button type="button" class="gos-button gos-button--secondary" disabled>Disabled</button>
+        </div>
+      </section>
+
+      <section aria-labelledby="text-heading">
+        <h2 id="text-heading" style="font-size: var(--text-md)">Text roles</h2>
+        <p style="color: var(--text-primary)">Primary text on the base surface.</p>
+        <p style="color: var(--text-secondary)">Secondary text, used for supporting copy.</p>
+        <p style="color: var(--text-tertiary)">
+          Tertiary text — placeholders and de-emphasised metadata.
+        </p>
+        <p style="color: var(--text-accent)">Accent text for an inline link.</p>
+        <div style="background: var(--surface-raised); padding: var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg)">
+          <p style="color: var(--text-primary); margin: 0">Primary text on a raised surface.</p>
+          <p style="color: var(--text-secondary); margin: 0">Secondary text on a raised surface.</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="status-heading">
+        <h2 id="status-heading" style="font-size: var(--text-md)">Status</h2>
+        <p style="color: var(--status-positive)">Positive — published successfully.</p>
+        <p style="color: var(--status-negative)">Negative — publishing failed.</p>
+        <p style="color: var(--status-warning)">Warning — connection expires soon.</p>
+        <p style="color: var(--status-info)">Info — metrics are refreshed hourly.</p>
+      </section>
+
+      <section aria-labelledby="form-heading">
+        <h2 id="form-heading" style="font-size: var(--text-md)">Form controls</h2>
+        <div class="gos-field" style="max-width: 20rem">
+          <label class="gos-label" for="workspace">Workspace name</label>
+          <input class="gos-input" id="workspace" aria-describedby="workspace-hint" />
+          <span class="gos-hint" id="workspace-hint">Visible to your team only.</span>
+        </div>
+        <div class="gos-field" style="max-width: 20rem; margin-top: var(--space-4)">
+          <label class="gos-label" for="broken">Client reference</label>
+          <input class="gos-input" id="broken" aria-invalid="true" aria-describedby="broken-error" />
+          <span class="gos-error" id="broken-error" role="alert">Reference is already in use.</span>
+        </div>
+      </section>
+
+      <section aria-labelledby="tabs-heading">
+        <h2 id="tabs-heading" style="font-size: var(--text-md)">Tabs</h2>
+        <div class="gos-tabs-list" role="tablist" aria-label="Sections">
+          <button type="button" class="gos-tab" role="tab" data-state="active" aria-selected="true" id="t1" aria-controls="p1">
+            Overview
+          </button>
+          <button type="button" class="gos-tab" role="tab" aria-selected="false" id="t2" aria-controls="p2" tabindex="-1">
+            Content
+          </button>
+        </div>
+        <div class="gos-tab-panel" role="tabpanel" id="p1" aria-labelledby="t1">Overview panel</div>
+        <div class="gos-tab-panel" role="tabpanel" id="p2" aria-labelledby="t2" hidden>Content panel</div>
+      </section>
+
+      <section aria-labelledby="menu-heading">
+        <h2 id="menu-heading" style="font-size: var(--text-md)">Menu and tooltip surfaces</h2>
+        <div class="gos-menu" role="menu" aria-label="Actions" style="width: 12rem">
+          <div class="gos-menu-item" role="menuitem" tabindex="-1">Edit</div>
+          <div class="gos-menu-item" role="menuitem" tabindex="-1" data-highlighted>Duplicate</div>
+          <div class="gos-menu-item" role="menuitem" tabindex="-1" data-disabled>Archive</div>
+        </div>
+        <div class="gos-tooltip" role="tooltip" style="display: inline-block; margin-top: var(--space-3)">
+          Publishes to every connected account
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "@growth-os/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-level suite: the checks that cannot be assessed truthfully in jsdom \u2014 colour contrast, landmark structure, real focus rings, real layout.",
+  "scripts": {
+    "e2e": "PLAYWRIGHT_CHROMIUM_PATH=$(node ../tools/scripts/resolve-chromium.mjs) playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
+    "axe-core": "4.13.0"
+  }
+}

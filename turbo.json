@@ -25,12 +25,20 @@
       "cache": false
     },
     "e2e": {
-      "dependsOn": ["build"],
+      "dependsOn": [],
       "outputs": ["playwright-report/**"],
       "cache": false
     },
     "clean": {
       "cache": false
     }
-  }
+  },
+  "globalEnv": [
+    "CI",
+    "PLAYWRIGHT_BROWSERS_PATH",
+    "PLAYWRIGHT_CHROMIUM_PATH",
+    "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD",
+    "PG_BIN",
+    "GROWTH_OS_MIGRATIONS_DIR"
+  ]
 }

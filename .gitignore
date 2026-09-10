@@ -18,6 +18,9 @@ out/
 *.p12
 secrets/
 
+# Transient specs written by the CI-gate proof suite
+__gate_*.test.tsx
+
 # Test and coverage
 coverage/
 .nyc_output/

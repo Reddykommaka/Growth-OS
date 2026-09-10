@@ -14,7 +14,8 @@
       "!**/coverage",
       "!**/node_modules",
       "!**/pnpm-lock.yaml",
-      "!tools/architecture-tests/fixtures"
+      "!tools/architecture-tests/fixtures",
+      "!**/__gate_*.test.tsx"
     ]
   },
   "formatter": {

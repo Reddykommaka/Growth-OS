@@ -70,9 +70,10 @@
 }
 
 .gos-button--danger {
-  background: var(--status-negative);
-  border-color: var(--status-negative);
-  color: var(--accent-contrast);
+  /* The fill role, not the text role — see the note in tokens.css. */
+  background: var(--status-negative-fill);
+  border-color: var(--status-negative-fill);
+  color: var(--status-negative-fill-contrast);
 }
 .gos-button--danger:hover:not(:disabled) {
   filter: brightness(0.92);

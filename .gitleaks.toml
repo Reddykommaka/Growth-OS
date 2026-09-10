@@ -1,0 +1,29 @@
+# Secret scanning configuration.
+#
+# The repository is public (00-assessment.md §1), so this runs both as a pre-commit hook
+# and as a CI gate: the local hook is the first line of defence, and CI is the one that
+# cannot be skipped with --no-verify.
+
+title = "Growth OS"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "growth-os-api-key"
+description = "Growth OS API key"
+# Our own format, registered so it is detectable by scanners
+# (10-security-architecture.md §3).
+regex = '''gos_(live|test)_[A-Za-z0-9]{2,12}_[A-Za-z0-9_-]{16,}'''
+keywords = ["gos_live_", "gos_test_"]
+
+[allowlist]
+description = "Paths that legitimately contain secret-shaped strings"
+paths = [
+  # Deliberately illegal fixtures and redaction tests contain fake credentials by design;
+  # a scanner that flags them would be silenced, which is worse than a narrow allowlist.
+  '''tools/architecture-tests/fixtures/.*''',
+  '''packages/platform/logger/src/logger\.test\.ts''',
+  '''\.gitleaks\.toml''',
+  '''docs/.*\.md''',
+]

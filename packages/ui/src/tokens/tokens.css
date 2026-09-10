@@ -31,25 +31,33 @@
 
   /* ONE accent, used for interactive affordance and the primary action only. If everything
      is accented, nothing is (13-design-system.md §2). */
+  /*
+   * Status and accent steps were solved numerically for WCAG AA against EVERY surface they
+   * can appear on — base, raised, sunken, hover and active — not just the default
+   * background. A colour that passes only on one surface fails the moment a row is hovered.
+   * Saturation is compensated when lightening for the dark theme: a "red" that has drifted
+   * to pink has failed its job even at a passing ratio. Verified in a real browser by
+   * e2e/tests/design-system.spec.ts; do not adjust these by eye.
+   */
   --accent-100: #dbe7ff;
   --accent-200: #b8d0ff;
-  --accent-400: #5b8def;
-  --accent-500: #3a72e8;
+  --accent-400: #71a0fc;
+  --accent-500: #3770e8;
   --accent-600: #2b5cd0;
   --accent-700: #2149a8;
 
   /* Status colours are reserved for status. */
   --green-100: #d8f3e3;
-  --green-500: #1a9c5b;
-  --green-600: #14804a;
+  --green-500: #15b866;
+  --green-600: #117644;
   --amber-100: #fdeecd;
-  --amber-500: #c98a09;
-  --amber-600: #a06e05;
+  --amber-500: #d99304;
+  --amber-600: #8a5e02;
   --red-100: #fde0df;
-  --red-500: #d33b32;
+  --red-500: #fc7870;
   --red-600: #b02e26;
   --blue-100: #d9ecfd;
-  --blue-500: #1a7fc1;
+  --blue-500: #22a8ff;
   --blue-600: #14669c;
 
   /* 4px base grid — every dimension is a multiple (13-design-system.md §2). */
@@ -109,15 +117,26 @@
   --surface-active: var(--gray-150);
   --surface-selected: var(--accent-100);
 
+  /*
+   * At a 13px base, AA (4.5:1) leaves little room for three grey levels. Rather than
+   * distort the primitive ramp, the roles point at steps that are both compliant and
+   * visibly distinct: 900 / 700 / 600 rather than 900 / 600 / 400.
+   */
   --text-primary: var(--gray-900);
-  --text-secondary: var(--gray-600);
-  --text-tertiary: var(--gray-400);
+  --text-secondary: var(--gray-700);
+  --text-tertiary: var(--gray-600);
   --text-inverse: var(--gray-0);
   --text-accent: var(--accent-600);
 
   /* Elevation is borders first, shadow rarely (13-design-system.md §2). */
   --border-subtle: var(--gray-150);
-  --border-strong: var(--gray-300);
+  /*
+   * WCAG 1.4.11 (non-text contrast): a control's boundary must reach 3:1 against its
+   * surroundings, since it is the only thing identifying the control. --border-strong is
+   * that boundary on inputs, secondary buttons, checkboxes and selects. --border-subtle is
+   * decorative (panel edges, separators) and is exempt.
+   */
+  --border-strong: var(--gray-500);
   --border-accent: var(--accent-500);
   --border-focus: var(--accent-500);
 
@@ -130,6 +149,15 @@
   --status-negative: var(--red-600);
   --status-warning: var(--amber-600);
   --status-info: var(--blue-600);
+  /*
+   * Fill roles are deliberately separate from the text roles above. A status colour used
+   * as TEXT on a dark surface must be light, while the same status used as a FILL behind
+   * white text must be dark — opposite requirements that one token cannot satisfy. The
+   * dark danger button proved this: reusing --status-negative as a fill gave 2.63:1.
+   */
+  --status-negative-fill: var(--red-600);
+  --status-negative-fill-contrast: var(--gray-0);
+
   --status-positive-surface: var(--green-100);
   --status-negative-surface: var(--red-100);
   --status-warning-surface: var(--amber-100);
@@ -153,13 +181,13 @@
     --surface-selected: var(--accent-700);
 
     --text-primary: var(--gray-50);
-    --text-secondary: var(--gray-300);
-    --text-tertiary: var(--gray-500);
+    --text-secondary: var(--gray-200);
+    --text-tertiary: var(--gray-300);
     --text-inverse: var(--gray-950);
     --text-accent: var(--accent-400);
 
     --border-subtle: var(--gray-800);
-    --border-strong: var(--gray-700);
+    --border-strong: var(--gray-400);
     --border-accent: var(--accent-400);
     --border-focus: var(--accent-400);
 
@@ -193,13 +221,13 @@
   --surface-selected: var(--accent-700);
 
   --text-primary: var(--gray-50);
-  --text-secondary: var(--gray-300);
-  --text-tertiary: var(--gray-500);
+  --text-secondary: var(--gray-200);
+  --text-tertiary: var(--gray-300);
   --text-inverse: var(--gray-950);
   --text-accent: var(--accent-400);
 
   --border-subtle: var(--gray-800);
-  --border-strong: var(--gray-700);
+  --border-strong: var(--gray-400);
   --border-accent: var(--accent-400);
   --border-focus: var(--accent-400);
 

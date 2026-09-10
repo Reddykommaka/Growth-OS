@@ -5,3 +5,4 @@ packages:
   - 'packages/modules/*'
   - 'packages/integrations/*'
   - 'tools/*'
+  - 'e2e'

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# Pre-commit gate.
+#
+# The repository is public, so the first line of defence against a committed secret must be
+# local: CI catches it too, but only once it already exists in a pushed branch's history
+# (10-security-architecture.md §3).
+#
+# Enable with: git config core.hooksPath .githooks
+set -euo pipefail
+
+fail() { printf '\n\033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# ---- 1. Secrets -------------------------------------------------------------------------
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --config .gitleaks.toml \
+    || fail "gitleaks found a secret in the staged changes. Remove it and rotate the credential — it may already be compromised."
+else
+  # A missing scanner must not silently disable the check on a public repository.
+  printf '\033[33m! gitleaks is not installed; falling back to a pattern scan.\033[0m\n' >&2
+
+  # Honour the same allowlist as .gitleaks.toml, read from there rather than duplicated, so
+  # the two cannot drift. A fallback that ignored the allowlist would block commits gitleaks
+  # itself passes — and a hook that blocks correct work is one people learn to bypass.
+  allow=$(sed -n '/^\[allowlist\]/,$p' .gitleaks.toml \
+            | grep -oE "'''[^']+'''" | sed "s/'''//g" || true)
+
+  secret_pattern='^\+.*(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{16,}|sk_(live|test)_[A-Za-z0-9]{16,}|gos_(live|test)_[A-Za-z0-9_-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+
+  for file in $staged; do
+    skip=0
+    for pattern in $allow; do
+      if printf '%s' "$file" | grep -qE "^${pattern}$"; then skip=1; break; fi
+    done
+    [ "$skip" -eq 1 ] && continue
+
+    if git diff --cached -U0 -- "$file" | grep -qEi "$secret_pattern"; then
+      fail "A credential-shaped string is staged in $file. If it is a deliberate fixture, add the path to [allowlist] in .gitleaks.toml. Otherwise remove it and rotate the credential."
+    fi
+  done
+fi
+
+# ---- 2. Environment files ---------------------------------------------------------------
+if echo "$staged" | grep -qE '^\.env($|\.)' && ! echo "$staged" | grep -q '^\.env\.example$'; then
+  fail "An environment file is staged. Only .env.example (names, never values) is committed."
+fi
+
+# ---- 3. Format and lint the staged files -------------------------------------------------
+if echo "$staged" | grep -qE '\.(ts|tsx|js|mjs|cjs|json|css)$'; then
+  pnpm exec biome check --staged --no-errors-on-unmatched \
+    || fail "biome reported problems. Run 'pnpm run format' and stage the result."
+fi
+
+# ---- 4. Migration lint -------------------------------------------------------------------
+if echo "$staged" | grep -q '^db/migrations/'; then
+  node tools/scripts/lint-migrations.mjs db/migrations \
+    || fail "Migration lint failed. See docs/architecture/05-data-architecture.md §11."
+fi
+
+printf '\033[32m✓ pre-commit checks passed\033[0m\n'

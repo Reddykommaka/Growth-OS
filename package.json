@@ -23,7 +23,8 @@
     "format": "biome check --write .",
     "clean": "turbo run clean",
     "lint:clientenv": "node tools/scripts/check-client-env-leaks.mjs apps/web/src packages/ui/src",
-    "lint:migrations": "node tools/scripts/lint-migrations.mjs db/migrations"
+    "lint:migrations": "node tools/scripts/lint-migrations.mjs db/migrations",
+    "e2e": "turbo run e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",

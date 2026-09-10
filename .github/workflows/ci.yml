@@ -1,0 +1,174 @@
+name: CI
+
+# 12-devops-architecture.md §3. Ordered fail-fastest: a boundary violation or a committed
+# secret should be reported in about two minutes, not after a full integration run.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.33.0'
+  # Browsers are baked into the runner image; never downloaded at test time.
+  PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- gate 1: static
+  static:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm run typecheck
+      - name: Format, lint, boundaries, file size, client env, migrations
+        run: pnpm run lint
+
+  # ---------------------------------------------------------------- gate 2: security
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 } # gitleaks scans history, not just the diff
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Dependency audit
+        run: pnpm audit --audit-level high
+      - name: Licence check
+        # Copyleft licences are blocked in application packages
+        # (02-technology-stack.md §8).
+        run: pnpm licenses list --json > licences.json && node tools/scripts/check-licences.mjs
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: github/codeql-action/init@v4
+        with: { languages: javascript-typescript }
+      - uses: github/codeql-action/analyze@v4
+
+  # ---------------------------------------------------------------- gate 3: unit
+  unit:
+    name: Unit and component tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: static
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run test
+
+  # ---------------------------------------------------------------- gate 4: integration
+  integration:
+    name: Integration tests (real PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: static
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install PostgreSQL 16 with pgvector
+        # The harness bootstraps its own cluster from the BINARIES; no service is started.
+        # pgvector is the one extension a default install does not provide — see
+        # docs/runbooks/database-prerequisites.md.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16 postgresql-16-pgvector
+      - uses: pnpm/action-setup@v4
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Integration suites (migrations, RLS, structural isolation)
+        run: pnpm run test:integration
+
+  # ---------------------------------------------------------------- gate 5: e2e
+  e2e:
+    name: Browser suite (contrast, landmarks, focus)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: static
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium if the image does not provide it
+        run: |
+          if [ ! -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 pnpm exec playwright install --with-deps chromium
+          fi
+      - run: pnpm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
+
+  # ---------------------------------------------------------------- summary
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [static, security, codeql, unit, integration, e2e]
+    steps:
+      # A single required check for branch protection. Without this, adding a job to the
+      # matrix silently makes it non-blocking until someone updates the ruleset.
+      - name: Fail if any gate failed
+        run: |
+          if echo '${{ join(needs.*.result, ' ') }}' | grep -qvw 'success'; then
+            echo "One or more CI gates failed: ${{ join(needs.*.result, ' ') }}"
+            exit 1
+          fi
+          echo "All gates passed."
