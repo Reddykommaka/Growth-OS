@@ -1,6 +1,6 @@
 # ADR-0001 — Modular monolith over microservices
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 Growth OS spans three products that must behave as one ecosystem. Its central value claim

@@ -1,6 +1,6 @@
 # ADR-0004 — Server Actions for first-party, versioned REST for public; no GraphQL
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 Two consumers with different needs: our own dashboard (fast iteration, end-to-end types) and

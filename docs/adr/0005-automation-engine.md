@@ -1,6 +1,6 @@
 # ADR-0005 — Data-driven automation engine rather than Temporal
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 End users author automations in a visual builder. Workflows must be versioned, paused,

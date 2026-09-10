@@ -1,6 +1,6 @@
 # ADR-0002 — PostgreSQL with Drizzle ORM and hand-reviewed SQL migrations
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 The data model needs row-level security (tenant isolation), declarative partitioning

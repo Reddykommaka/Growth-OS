@@ -2,15 +2,16 @@
 
 ## 1. Layout
 
-A pnpm workspace with Turborepo. Three deployable apps, and every line of business logic
-in versioned internal packages.
+A pnpm workspace with Turborepo. Four deployable apps, and every line of business logic in
+versioned internal packages.
 
 ```
 growth-os/
 ├── apps/
 │   ├── web/                      Next.js 16 — dashboard, storefront, public pages
 │   ├── api/                      Fastify 5 — /v1 REST, webhook receivers
-│   └── worker/                   BullMQ consumers, scheduler, outbox relay
+│   ├── worker/                   BullMQ consumers, scheduler, outbox relay, intelligence jobs
+│   └── link/                     Tracked-link redirect service (p99 < 50ms, own uptime profile)
 │
 ├── packages/
 │   ├── platform/                 Cross-cutting foundations (no business rules)
@@ -37,9 +38,12 @@ growth-os/
 │   ├── integrations/
 │   │   ├── core/                 Ports, provider registry, credential vault,
 │   │   │                         OAuth lifecycle, webhook verification, error taxonomy
-│   │   ├── meta/  linkedin/  x/  tiktok/  youtube/  pinterest/
+│   │   ├── meta-core/            Shared Meta auth, Graph transport, webhooks, rate budget
+│   │   ├── instagram/  facebook/  threads/        ← depend on meta-core (ADR-0015)
+│   │   ├── youtube/  linkedin/  tiktok/  x/  pinterest/
 │   │   ├── google-ads/  meta-ads/  linkedin-ads/
-│   │   ├── stripe/  resend/  s3/  anthropic/
+│   │   ├── stripe/  resend/  s3/
+│   │   ├── anthropic/  openai/   ← ModelProviderPort adapters; the ONLY place model SDKs appear
 │   │   └── testkit/              Recorded fixtures + contract-test suite every adapter runs
 │   │
 │   ├── modules/                  ← business domains; the real boundaries
@@ -50,7 +54,9 @@ growth-os/
 │   │   ├── marketing/            Strategy, campaigns, ads, landing pages, forms, email
 │   │   ├── crm/                  Contacts, companies, deals, pipelines, activities
 │   │   ├── marketplace/          Listings, catalogue, orders, payouts, reviews, disputes
-│   │   └── analytics/            Identity graph, touchpoints, attribution, metrics, reports
+│   │   ├── analytics/            Identity graph, touchpoints, attribution, metrics, reports
+│   │   └── intelligence/         Knowledge graph, feature store, retrieval, AI capabilities,
+│   │                             prompt/eval registries, recommendation engine
 │   │
 │   ├── ui/                       Design system: tokens, primitives, composites
 │   ├── charts/                   visx-based chart library on design tokens
@@ -125,7 +131,13 @@ one everybody agrees with:
 3. **dependency-cruiser rules in CI** — encode the layering rule, the "apps may only import
    contracts" rule, and a no-cycles rule.
 4. **ESLint `no-restricted-imports`** — bans `drizzle-orm`, `ioredis`, `bullmq` and
-   provider SDKs from `domain/` and `application/` directories.
+   provider SDKs from `domain/` and `application/` directories, and bans model-provider SDKs
+   (`@anthropic-ai/sdk`, `openai`) **everywhere except `packages/integrations/*`**
+   ([ADR-0013](../adr/0013-model-provider-abstraction.md)).
+
+Each mechanism is itself tested: `boundaries.test.ts` holds deliberately illegal imports and
+asserts each is rejected. A misconfigured rule that silently enforces nothing is worse than
+no rule, because it is believed.
 
 ## 3. Inter-module communication — the two legal forms
 
@@ -173,5 +185,7 @@ adapter, which is what makes every service testable with fakes.
 | Marketplace querying CRM tables directly | Table definitions are not exported; no shared schema module |
 | A "utils" package that everything depends on | `platform/` packages are single-purpose and reviewed; a generic `utils` package is rejected in review |
 | A 3,000-line service file | Lint caps file length (400 lines) and function length; use cases are one file each |
+| An AI SDK call inside a React component | Model SDKs are lint-banned outside `integrations/*`; product code sees only `IntelligencePort` |
+| A prompt as an inline string | Prompts live in the versioned registry; a capability referencing an unregistered prompt fails to build |
 | Circular module dependencies | dependency-cruiser no-cycle rule fails CI |
 | Silent `any` | `strict` + explicit-any lint rule |

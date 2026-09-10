@@ -53,6 +53,13 @@ Consequences that matter:
   do — which is the artefact a security reviewer actually needs.
 
 Additional required suites:
+- **Three-scope resolution** — a role granted at organization, team and workspace scope
+  produces exactly the expected accessible-workspace set, including through
+  `team_workspace_access`, and including after a workspace is moved between teams.
+- **`client_guest` containment** — the most security-sensitive role, because it is held by
+  someone outside the tenant organization. Asserts the guest can approve and comment in
+  their one workspace, and is denied every billing, member-management, cost, analytics-cost
+  and integration-credential permission, and every other workspace in the organization.
 - **Ownership rules** (e.g. `crm.deal:update` on a deal you own but not on another's).
 - **Resource grants** grant and revoke correctly, and revocation takes effect immediately.
 - **Escalation attempts**: a `member` cannot assign themselves `admin`; a `workspace_admin`
@@ -94,7 +101,9 @@ listings **are** readable across tenants; drafts, orders, payouts and seller fin
 | Automation engine | Branching, delays, waits, loop bounds, recursion guard, resume-after-worker-death, in-flight runs keep their version |
 | Money | Double-entry ledger balances to zero for every order/refund/commission/payout sequence; property-based tests over random sequences |
 | Migrations | Every migration applies forward against a production-shaped schema; the lint rules in [05](05-data-architecture.md) §11 are enforced; a rollback-by-new-migration path is exercised |
-| Analytics | Rollups computed incrementally equal a full rebuild from facts (property test); duplicate events do not double-count; attribution credit fractions sum to 1.0 per conversion per model |
+| Analytics | Rollups computed incrementally equal a full rebuild from facts (property test); duplicate events do not double-count; attribution credit fractions sum to 1.0 per conversion per model; every result carries model, version, lookback and evidence |
+| Intelligence | Retrieval is filtered by workspace **before** ranking (a cross-tenant probe seeds Org B content and asserts it can never surface for Org A); budget guards refuse invocation past a hard stop; structured outputs failing schema never reach the domain; provenance is written for every invocation with no unlogged path; capability golden-set evals run in CI and report a diff on prompt or model change |
+| Marketplace money | Randomised order/refund/commission/payout sequences net to zero in the ledger (property test); prices and commission rates are snapshotted, so changing a listing price never restates an existing order |
 
 ## 6. Component, E2E and accessibility
 

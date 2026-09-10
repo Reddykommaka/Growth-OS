@@ -18,12 +18,18 @@ before implementation.
 | Extensibility | `metadata jsonb NOT NULL DEFAULT '{}'` on customer-facing entities | For genuinely open-ended annotation only — never for data we query or constrain |
 | Concurrency | `version integer NOT NULL DEFAULT 0` on entities with contended edits | Optimistic locking on calendar slots, deals, listings |
 
-**On JSON:** `jsonb` is permitted in exactly four places, each justified below —
+**On JSON:** `jsonb` is permitted in exactly six places, each justified below —
 marketplace listing attribute values (schema-driven, per-category), automation definition
 graphs (user-authored documents), raw provider payloads (`inbound_webhook_events.payload`,
-`provider_metric_snapshots.raw`), and `metadata`. Everywhere else, relational modelling
-wins. A `jsonb` column that gets filtered or aggregated in a product query is a modelling
-bug, and migration review treats it as one.
+`provider_metric_snapshots.raw`), attribution and recommendation **evidence** (a
+heterogeneous, append-only record of what supported a conclusion), AI structured outputs and
+feature snapshots (shape varies by capability and model version), and `metadata`. Everywhere
+else, relational modelling wins. A `jsonb` column that gets filtered or aggregated in a
+product query is a modelling bug, and migration review treats it as one.
+
+`evidence` and `features` are the honest cases: their schema is *defined by the model or
+attribution version that produced them*, they are written once and never updated, and they
+are read for display and audit rather than filtered in aggregate queries.
 
 ## 2. Entity inventory
 
@@ -38,14 +44,15 @@ without a foreign key* (a cross-module reference, resolved at the application la
 | `user_identities` | `user_id →users`, `provider`, `provider_user_id` | `UNIQUE(provider, provider_user_id)` |
 | `sessions` | `user_id →users`, `token_hash UNIQUE`, `expires_at`, `ip`, `user_agent`, `revoked_at` | Opaque tokens; only the SHA-256 hash is stored |
 | `mfa_credentials` | `user_id →users`, `type`, `secret_encrypted`, `confirmed_at` | TOTP / WebAuthn |
-| `organizations` | `slug UNIQUE`, `name`, `status`, `billing_email`, `default_timezone`, `data_region` | The tenant root |
-| `workspaces` | `organization_id →organizations`, `slug`, `name`, `timezone` | `UNIQUE(organization_id, slug)` |
-| `teams` | `organization_id`, `name` | |
+| `organizations` | `slug UNIQUE`, `name`, `status`, `kind` (`agency`\|`business`), `billing_email`, `default_timezone`, `data_region` | The tenant root |
+| `teams` | `organization_id →organizations`, `slug`, `name`, `is_default` | `UNIQUE(organization_id, slug)`. The access/staffing layer |
+| `workspaces` | `organization_id →organizations`, `team_id →teams NULL`, `slug`, `name`, `timezone`, `kind` (`client`\|`internal`\|`brand`), `client_reference` | `UNIQUE(organization_id, slug)`. **The resource boundary** |
+| `team_workspace_access` | `team_id →teams`, `workspace_id →workspaces`, `access_level` | Additional teams granted access to a workspace (specialist pods) |
 | `organization_members` | `organization_id`, `user_id →users`, `status` | `UNIQUE(organization_id, user_id)` |
-| `team_members` | `team_id →teams`, `organization_member_id →organization_members` | |
-| `roles` | `organization_id NULL`, `slug`, `scope`, `is_system` | `NULL` org = system role; per-org rows = custom roles |
+| `team_members` | `team_id →teams`, `organization_member_id →organization_members` | `UNIQUE(team_id, organization_member_id)` |
+| `roles` | `organization_id NULL`, `slug`, `scope` (`organization`\|`team`\|`workspace`), `is_system` | `NULL` org = system role; per-org rows = custom roles |
 | `role_permissions` | `role_id →roles`, `permission` | Permission literals from the catalogue |
-| `role_assignments` | `organization_member_id`, `role_id`, `workspace_id NULL` | `NULL` workspace = org-wide |
+| `role_assignments` | `organization_member_id`, `role_id`, `team_id NULL`, `workspace_id NULL` | Scope is org-wide, team-wide, or a single workspace. `CHECK` enforces at most one of `team_id`/`workspace_id` |
 | `resource_grants` | `subject_type/id`, `resource_type`, `resource_id`, `permission` | Fine-grained per-resource sharing |
 | `invitations` | `organization_id`, `email`, `role_id`, `token_hash`, `expires_at`, `accepted_at` | |
 | `api_keys` | `organization_id`, `name`, `prefix`, `key_hash`, `scopes text[]`, `last_used_at`, `expires_at` | Secret shown once; only the hash persists |
@@ -154,10 +161,27 @@ instead of an investigation.
 | `identity_merges` | Audit of graph merges, so a bad merge is reversible |
 | `touchpoints` | `organization_id`, `workspace_id`, `identity_id NULL`, `occurred_at`, `channel`, `interaction`, `source_type`, `source_id`, ⇢`campaign_id`, `cost_minor NULL`, `session_id` | **Partitioned monthly by `occurred_at`** |
 | `conversions` | `identity_id`, `conversion_type` (lead/qualified/deal_won/order), `value_minor`, `currency`, `occurred_at`, `source_type/id` | Partitioned monthly |
-| `attribution_results` | `conversion_id`, `model`, `touchpoint_id`, `credit_fraction numeric(9,8)`, `credited_value_minor`, `computed_at` | One row per (conversion, model, touchpoint); reproducible and comparable |
+| `attribution_results` | `conversion_id`, `model`, `model_version`, `lookback_window`, `touchpoint_id`, `credit_fraction numeric(9,8)`, `credited_value_minor`, `evidence jsonb`, `computed_at`, `computation_id` | One row per (conversion, model, touchpoint). **Model, version, lookback window and source evidence are stored with the result**, so any number is reproducible and explicable months later |
+| `attribution_computations` | `computation_id`, `organization_id`, `trigger`, `input_range`, `code_version`, `started_at`, `finished_at`, `row_count` | The run that produced a set of results — the audit record behind a restated number |
 | `cost_facts` | `date`, `channel`, `source_type/id`, ⇢`campaign_id`, `spend_minor` | Unifies ad spend and other costs for CPL/CAC |
 | `metric_rollups` | `organization_id`, `workspace_id`, `date`, `grain`, `dimension_type/id`, `metric_key`, `value_numeric` | Incremental; always rebuildable from facts |
 | `reports`, `dashboards`, `dashboard_widgets`, `scheduled_exports` | Saved definitions |
+
+### Intelligence
+
+| Table | Notes |
+| --- | --- |
+| `ai_capabilities` | Registry: capability key, category, default model policy, required entitlement, cost class |
+| `prompt_templates` / `prompt_versions` | Versioned, immutable prompt bodies with a declared input schema. A prompt change is a deployable, reviewable, evaluable artefact — never an inline string |
+| `ai_invocations` | `organization_id`, `workspace_id`, `capability`, `prompt_version_id`, `provider`, `model`, `input_hash`, `input_tokens`, `output_tokens`, `cost_minor`, `latency_ms`, `status`, `grounding_ref`, `actor_id` — **the provenance and cost ledger**; monthly partitions |
+| `ai_outputs` | `invocation_id`, `content`, `structured jsonb`, `citations jsonb`, `safety_flags`, `human_verdict` | Kept separate from the invocation so outputs age on a different retention clock |
+| `ai_feedback` | `output_id`, `actor_id`, `rating`, `edited_result`, `reason` — the evaluation signal |
+| `knowledge_nodes` | `organization_id`, `workspace_id`, `node_type` (business, audience, offer, content, campaign, ad, channel, lead, customer, listing), `source_type/id`, `label`, `attributes jsonb` |
+| `knowledge_edges` | `from_node_id`, `to_node_id`, `relation`, `weight`, `evidence jsonb`, `observed_at` — the cross-product relationship graph |
+| `content_embeddings` | `organization_id`, `workspace_id`, `source_type/id`, `model`, `embedding vector(N)` — `pgvector`, HNSW index, tenant-scoped |
+| `feature_snapshots` | `entity_type/id`, `feature_set`, `computed_at`, `features jsonb`, `code_version` — point-in-time model inputs. **Storing features as they were at scoring time is what makes a score reproducible and prevents training/serving skew** |
+| `recommendations` | `organization_id`, `workspace_id`, `kind`, `subject_type/id`, `rationale`, `evidence jsonb`, `expected_impact`, `confidence`, `status` (`open`/`applied`/`dismissed`/`expired`), `applied_by`, `applied_at` |
+| `ai_budgets` | `organization_id`, `workspace_id NULL`, `period`, `limit_minor`, `consumed_minor`, `hard_stop` — cost control as data, checked before invocation |
 
 ## 3. Ownership and tenant boundaries
 
@@ -168,6 +192,21 @@ Three isolation levels, chosen per table and never mixed:
    `organization_id = current_setting('app.organization_id')::uuid`.
 3. **Workspace-scoped** — additionally `workspace_id NOT NULL`; RLS adds membership of the
    workspace via the actor's accessible-workspace set.
+
+**Teams are deliberately absent from this list.** The hierarchy is
+organization → team → workspace, but the *isolation predicate* is written against
+`organization_id` and `workspace_id` only. Team membership is resolved in the application
+layer into the actor's accessible-workspace set, which is passed to the database as
+`app.workspace_ids`.
+
+This is a considered trade. Putting `team_id` into the RLS predicate would mean a
+three-way join inside every policy on every query, and it would break the moment a
+workspace is served by two teams — which `team_workspace_access` exists to support.
+Keeping the predicate two-level means teams can grow in expressiveness (nested teams,
+cross-team grants, time-boxed client access) without ever touching a policy or a migration.
+Team scope is an access-*expansion* mechanism, and expansion belongs in the authorization
+layer; the database keeps the hard, narrow boundary. See
+[06](06-identity-and-access.md) §4.
 
 **Marketplace is the deliberate exception** and is designed as such: published listings are
 readable across tenants. This is expressed as an explicit, reviewed RLS policy —
@@ -238,7 +277,7 @@ onto a large live table is an outage:
 
 `touchpoints`, `conversions`, `link_clicks`, `email_events`, `post_metric_snapshots`,
 `account_metric_snapshots`, `ad_spend_facts`, `audit_events`, `job_executions`,
-`usage_records`, `inbound_webhook_events`.
+`usage_records`, `inbound_webhook_events`, `ai_invocations`.
 
 A scheduled job pre-creates partitions 3 months ahead and detaches/archives those past
 retention. Detached partitions go to object storage as Parquet before being dropped.
@@ -282,6 +321,9 @@ convention.
 | Raw provider payloads | `inbound_webhook_events.payload` | 30 days | Partition drop after processing |
 | Analytics facts | Touchpoints, conversions | 25 months hot, archived beyond | Partition detach → Parquet |
 | Derived | Rollups, attribution results | Recomputable | May be dropped and rebuilt |
+| AI provenance | `ai_invocations` (model, cost, tokens, hashes) | 25 months | Partitioned; the cost and governance record |
+| AI content | `ai_outputs` (generated text, structured results) | 12 months, tenant-configurable | Separate table so it ages independently of provenance |
+| Embeddings | `content_embeddings` | Life of source | Recomputable; invalidated and rebuilt on model change |
 
 **GDPR erasure** pseudonymises rather than deletes: identity keys are cleared, PII columns
 redacted, and a tombstone retained so aggregate analytics stay correct and the erasure

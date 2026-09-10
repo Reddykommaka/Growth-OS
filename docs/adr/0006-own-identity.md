@@ -1,6 +1,6 @@
 # ADR-0006 — Own the identity tables; assemble authentication from focused libraries
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 A user's relationship to an organization is a first-class domain concept here: multi-org

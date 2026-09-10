@@ -8,6 +8,10 @@ Assets, ranked by what an attacker would actually want:
    here means an attacker posts as our customer and spends their ad budget. This is the
    highest-value asset in the system and is treated as such.
 2. **Cross-tenant data** — one organization reading another's contacts, content or revenue.
+   In the agency model this is sharper: a leak between two workspaces is a leak between two
+   of our customer's *clients*, breaching their commercial confidence as well as ours.
+   The `client_guest` role additionally places a person from outside the tenant
+   organization inside the product.
 3. **Money** — marketplace orders, commissions, payouts.
 4. **PII** — CRM contacts, identity graph keys, form submissions.
 5. **Availability** — publishing at a scheduled time is a customer commitment.
@@ -54,7 +58,23 @@ statement:
   variables, rotated on a schedule, and never logged. Rotation runbooks are in
   `docs/runbooks/`.
 
-## 4. Marketplace-specific risks
+## 4. AI-specific risks
+
+Model features introduce a threat surface the rest of the system does not have, and it is
+addressed in the intelligence layer rather than per feature
+([16](16-intelligence-architecture.md) §7, [ADR-0016](../adr/0016-ai-governance.md)).
+
+| Risk | Control |
+| --- | --- |
+| **Prompt injection via ingested content** — inbound social messages, comments, competitor pages and marketplace listings are untrusted by design | Untrusted text is delimited and never granted instruction authority; tool use is disabled for capabilities that read it; no capability reading untrusted input may write to the domain |
+| **Cross-tenant leakage through retrieval** | Vector and keyword retrieval is filtered by workspace **before** ranking, never after. Embeddings live in the same RLS-protected database as their source, so the tenant filter is an ordinary predicate on an already-isolated table rather than a second system's access model to get right |
+| **PII sent to a third-party model provider** | Redaction before any provider call where the capability does not require the field; per-tenant model allowlist and residency honoured by the router; zero-retention endpoints where available; no cross-tenant training, ever |
+| **Unattended AI writes** | Intelligence emits proposals. Auto-apply is opt-in per automation node, gated by its own permission, and audited with the invocation id |
+| **Cost as a denial-of-wallet vector** | Pre-invocation budget checks with hard stops; per-capability cost classes; anomalous-spend circuit breaker; automation recursion guards |
+| **Model output as an injection vector into our own UI** | Generated content is escaped and sanitised on the same path as any user content; structured outputs are schema-validated before use |
+| **Provider credential leak** | Model provider keys are held in the secret manager under the same regime as every other credential, and are registered with the repository secret scanner |
+
+## 5. Marketplace-specific risks
 
 The marketplace admits *paid* adversaries with legitimate accounts, which is a materially
 different threat profile from the rest of the product:
@@ -69,20 +89,20 @@ different threat profile from the rest of the product:
 | Refund abuse | State machine with allowed transitions; refunds post reversing ledger entries; rate limits per buyer |
 | Marketplace enumeration / scraping | Rate limits, pagination caps, no sequential ids, bot detection on discovery endpoints |
 
-## 5. Application-security lifecycle
+## 6. Application-security lifecycle
 
 | Stage | Control |
 | --- | --- |
 | Design | Threat-model note required in the PR for any feature touching authn/authz, money, files or PII |
 | Code | Typed boundaries, `any` banned, lint rules for the dangerous APIs listed above |
-| Review | A second reviewer is required for changes to `packages/platform/{authn,authz}`, `db/policies/`, and anything under `marketplace/money` |
+| Review | A second reviewer is required for changes to `packages/platform/{authn,authz}`, `db/policies/`, anything under `marketplace/money`, and any prompt or capability that reads untrusted input |
 | CI | SAST (CodeQL), dependency audit (`pnpm audit` + OSV), secret scan, licence check, container image scan |
 | Test | Authorization matrix, cross-tenant probes, CSRF/SSRF/upload regression tests ([11](11-testing-architecture.md)) |
 | Runtime | Anomaly alerts on authorization-denial spikes, impossible-travel logins, credential-decrypt failures, invalid-webhook-signature rates |
 | Response | Documented incident runbook: contain (revoke sessions/keys/tokens), assess via audit chain, notify within regulatory windows, post-mortem |
 | Assurance | External penetration test before general availability; annual thereafter; a security disclosure policy (`SECURITY.md`) from day one |
 
-## 6. Privacy and compliance readiness
+## 7. Privacy and compliance readiness
 
 - **Data classification** and retention are defined per table ([05](05-data-architecture.md) §10).
 - **Subject rights**: export and erasure are implemented as auditable workflows; erasure
@@ -93,7 +113,7 @@ different threat profile from the rest of the product:
 - **Consent**: tracking behaviour (link clicks, page views) respects a per-workspace consent
   configuration, and identity keys can be collected in a hashed-only mode.
 
-## 7. What is deliberately deferred (and why that is safe)
+## 8. What is deliberately deferred (and why that is safe)
 
 | Deferred | Until | Why it is safe to defer |
 | --- | --- | --- |

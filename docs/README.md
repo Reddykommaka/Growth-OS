@@ -29,14 +29,33 @@ products on one shared platform:
 | 13 | [Design system](architecture/13-design-system.md) | Tokens, primitives, density, accessibility |
 | 14 | [Development phases](architecture/14-roadmap.md) | Sequenced delivery plan |
 | 15 | [Risks & open questions](architecture/15-risks.md) | Ranked risks with mitigations |
+| 16 | [AI & intelligence architecture](architecture/16-intelligence-architecture.md) | Provider abstraction, grounding, capabilities, recommendations, governance |
+| 17 | [Marketplace architecture](architecture/17-marketplace-architecture.md) | Participants, catalogue, orders, money, trust, ecosystem links |
+| 18 | [Phase 0 implementation plan](architecture/18-phase-0-plan.md) | Exact work items and exit criteria |
+| 19 | [**Approved architecture summary**](architecture/19-approved-summary.md) | Consolidated view: domain map, dependency graph, sequence, remaining decisions, new risks |
+
+**Start here:** [19 — Approved architecture summary](architecture/19-approved-summary.md).
 
 ## Architecture Decision Records
 
-See [`docs/adr/`](adr/README.md). ADRs are immutable once accepted; a reversal is a new
-ADR that supersedes the old one.
+See [`docs/adr/`](adr/README.md) — 16 accepted ADRs. ADRs are immutable once accepted; a
+reversal is a new ADR that supersedes the old one.
 
 ## Status
 
-**Proposal — awaiting approval.** No application code exists yet. Nothing in this
-directory has been implemented. See [14-roadmap.md](architecture/14-roadmap.md) for the
-sequence that follows approval.
+**Architecture approved (2026-09-10). Awaiting approval to begin structural implementation.**
+
+No application code exists yet. Nothing in this directory has been implemented.
+
+### Approved strategic decisions applied
+
+| # | Decision | Where it landed |
+| --- | --- | --- |
+| 1 | Commercial order: Social → Marketing → Marketplace; all three first-class | [01](architecture/01-overview.md) §2, [14](architecture/14-roadmap.md) |
+| 2 | Agency-first: Organization → Team → Workspace; direct business native | [04](architecture/04-domain-architecture.md), [05](architecture/05-data-architecture.md), [06](architecture/06-identity-and-access.md), [ADR-0003](adr/0003-tenancy-model.md) |
+| 3 | Tier 1: Instagram, Facebook, YouTube, LinkedIn, TikTok · Tier 2: X, Pinterest, Threads | [07](architecture/07-integration-architecture.md) §1, [ADR-0015](adr/0015-meta-provider-family.md) |
+| 4 | AI as a platform capability, multi-provider | [16](architecture/16-intelligence-architecture.md), [ADR-0013](adr/0013-model-provider-abstraction.md), [ADR-0016](adr/0016-ai-governance.md) |
+| 5 | Cloud-portable, managed infrastructure, no unnecessary distribution | [12](architecture/12-devops-architecture.md) §2, §9 |
+| 6 | Attribution spine foundational, with model/version/lookback and source evidence | [09](architecture/09-analytics-architecture.md) §5 |
+| 7 | Marketplace first-class, double-entry ledger retained | [17](architecture/17-marketplace-architecture.md), [ADR-0012](adr/0012-money-and-ledger.md) |
+| 8 | Cross-product intelligence layer | [16](architecture/16-intelligence-architecture.md), [ADR-0014](adr/0014-intelligence-layer.md) |

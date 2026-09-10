@@ -30,7 +30,7 @@ packages/integrations/{meta,linkedin,x,tiktok,youtube,google-ads,stripe,resend,s
 | `PaymentPort` | charges, refunds, subscriptions, connected accounts, transfers |
 | `StoragePort` | presigned upload/download, delete, copy, signed public URL |
 | `SearchPort` | index, delete, query with facets |
-| `LlmPort` | completion, structured output, embedding |
+| `ModelProviderPort` | completion, structured output, streaming, embedding, tool use — consumed **only** by the intelligence layer ([16](16-intelligence-architecture.md)), never by product code |
 | `CalendarPort` | free/busy, event CRUD |
 | `EnterpriseIdentityPort` | SAML/OIDC assertion exchange, SCIM user/group sync |
 
@@ -63,6 +63,43 @@ means by "not scattered throughout the application", made concrete.
 The **provider registry** resolves `(provider, capability) → adapter`, and a service that
 asks for an unsupported capability gets a typed `CapabilityUnsupportedError`, not a runtime
 surprise.
+
+### Platform coverage and tiers
+
+Provider work is sequenced by commercial priority, but the *architecture* is designed for
+all of them from the start — adding a tier-2 platform must not require touching core code.
+
+| Tier | Platforms | Notes |
+| --- | --- | --- |
+| **Tier 1** | Instagram, Facebook, YouTube, LinkedIn, TikTok | Full publishing, insights, engagement and (where offered) listening |
+| **Tier 2** | X, Pinterest, Threads | Same ports; capability manifests declare narrower support |
+
+**The Meta family is one auth core with three provider identities.** Instagram, Facebook and
+Threads share Meta's Graph API, app registration, OAuth flow, token model, webhook transport
+and rate-limit accounting — but they are genuinely different products with different content
+rules, media constraints, insight metrics and engagement surfaces.
+
+Modelling them as one provider would force `if (platform === 'instagram')` branching inside a
+single adapter — exactly the scattering this architecture exists to prevent. Modelling them
+as three unrelated adapters would triplicate the OAuth, token-refresh, webhook-verification
+and rate-limit code, and the shared rate-limit budget would be accounted three times, which
+is not merely wasteful but *wrong*: Meta meters the app, not the surface.
+
+So: `integrations/meta-core` owns auth, token lifecycle, the Graph transport, webhook
+verification and the **shared** rate-limit bucket; `integrations/instagram`,
+`integrations/facebook` and `integrations/threads` are separate adapters with separate
+manifests that depend on it. Three `integration_providers` rows, three sets of capabilities,
+one credential and one budget. [ADR-0015](../adr/0015-meta-provider-family.md).
+
+The same pattern applies wherever a vendor spans surfaces — Google (YouTube, Google Ads,
+Analytics) is the next instance, and the pattern is already in place when we reach it.
+
+**Capability degradation is required, not optional.** Platforms remove capabilities with
+little notice (a listening endpoint deprecated, a metric withdrawn, a scope narrowed at app
+review). Because the UI is driven by the manifest rather than by hard-coded assumptions, a
+withdrawn capability becomes a disabled control with an explanation and a paused automation
+— not a runtime error. A manifest change is the entire remediation for a whole class of
+platform-side change.
 
 ## 2. Connection lifecycle
 

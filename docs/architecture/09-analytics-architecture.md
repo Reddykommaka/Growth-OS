@@ -85,14 +85,35 @@ can never slow a publish or a checkout.
 
 ## 5. Attribution
 
-`attribution_results` stores one row per `(conversion, model, touchpoint)` with a
-`credit_fraction` and a `credited_value_minor`.
+`attribution_results` stores one row per `(conversion, model, touchpoint)` carrying
+`credit_fraction`, `credited_value_minor`, and — critically — the **context that produced
+it**: `model`, `model_version`, `lookback_window`, `computation_id` and an `evidence`
+record.
 
-Storing the result of *every* model rather than computing one on the fly is deliberate:
+Storing the result of *every* model, with its full context, rather than computing one on the
+fly is deliberate:
 
-- Reports are **reproducible** — the number in last quarter's board deck can be regenerated.
+- Reports are **reproducible** — the number in last quarter's board deck can be regenerated
+  exactly, because the model version and lookback window that produced it are on the row.
 - Models are **comparable** side by side, which is how a marketer builds trust in the data.
-- Changing a model is a **recomputation job**, not a schema migration.
+- Changing a model or a window is a **recomputation job**, not a schema migration, and it
+  does not silently rewrite history.
+- A restated number is **explicable**: `attribution_computations` records which run produced
+  which rows, what triggered it, over what input range, at what code version.
+
+### Source evidence
+
+`evidence` holds the specific facts that supported the credit assignment: the touchpoint
+chain considered, which were inside and outside the window and why, the identity-resolution
+links traversed (and their confidence), any touchpoints excluded and the reason, and the
+weights the model applied.
+
+This is what makes drill-down *trustworthy* rather than merely available. "This €40,000 deal
+is credited 40% to that LinkedIn post" is an assertion; the evidence record is the argument
+for it — and an agency presenting these numbers to their client will be asked for the
+argument. Without it, the first challenged number costs more trust than the feature ever
+built. It is append-only and never rewritten; a recomputation writes new rows under a new
+`computation_id`.
 
 Models shipped: first-touch, last-touch, last-non-direct, linear, time-decay (configurable
 half-life), position-based (40/20/40). Data-driven attribution is a later addition and slots
@@ -100,6 +121,9 @@ in as another `model` value — no structural change.
 
 Lookback windows are configurable per workspace (default 90 days click, 1 day view) and
 stored **with the result**, so a later window change does not silently alter history.
+
+Credit fractions for a given `(conversion, model)` are asserted to sum to 1.0 — a property
+test, not a hope ([11](11-testing-architecture.md) §5).
 
 Recomputation is incremental (only conversions whose lookback contains a changed touchpoint)
 and always possible from scratch, because facts are never mutated.
@@ -161,7 +185,19 @@ raw facts (partitioned)
 | Time to conversion | `conversions.occurred_at − first touchpoint`, distribution |
 | Which social account drives pipeline? | Touchpoints joined to `social_account_id` → attribution → deal value |
 
-## 9. Storage evolution
+## 9. Feeding the intelligence layer
+
+Attribution is what makes intelligence specific rather than generic. Because
+`attribution_results` links revenue back to individual content, campaigns, channels and
+accounts — with evidence — the intelligence layer can ground its recommendations in the
+tenant's own measured outcomes rather than in prior knowledge about marketing in general.
+
+The contract between the two is deliberately narrow: `intelligence` reads facts, rollups and
+attribution results through the `AnalyticsQueryPort`, and reads nothing else from
+`analytics`. It does not share tables, and it does not sit on any analytics write path. See
+[16-intelligence-architecture.md](16-intelligence-architecture.md).
+
+## 10. Storage evolution
 
 Postgres first — partitioned facts plus incremental rollups handle a very long way, and a
 second datastore introduces dual-write consistency, a second operational surface and a
@@ -173,7 +209,7 @@ port, fed from the same event stream, with no change to product code. The trigge
 measured threshold (p95 report latency, or fact-table size), not a hunch.
 [ADR-0008](../adr/0008-analytics-storage.md).
 
-## 10. Failure modes
+## 11. Failure modes
 
 | Failure | Behaviour |
 | --- | --- |

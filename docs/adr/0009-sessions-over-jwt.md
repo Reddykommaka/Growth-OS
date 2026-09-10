@@ -1,6 +1,6 @@
 # ADR-0009 — Opaque server-side sessions instead of JWTs
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 B2B customers require that removing a user's access takes effect immediately — an employee

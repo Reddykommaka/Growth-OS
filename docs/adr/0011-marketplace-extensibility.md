@@ -1,6 +1,6 @@
 # ADR-0011 — Listing types with typed attribute values
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 The marketplace must span software, templates, content packs, playbooks, automation

@@ -1,6 +1,6 @@
 # ADR-0010 — Own design system built on unstyled accessible primitives
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 The product must not look like generic AI-generated SaaS, must support dense enterprise

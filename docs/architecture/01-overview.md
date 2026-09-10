@@ -21,25 +21,49 @@ codebase, one database and one event spine.
                           ┌───────────────▼──────────────────────────┐
    Timers, queue ────────▶│  apps/worker   BullMQ consumers          │
                           │  • outbox relay, automation runtime,     │
-                          │    publishing, ingestion, rollups        │
+                          │    publishing, ingestion, rollups,       │
+                          │    intelligence jobs                     │
+                          └───────────────┬──────────────────────────┘
+                                          │
+   Social clicks ────────▶┌───────────────▼──────────────────────────┐
+                          │  apps/link     redirect service          │
+                          │  • tracked-link resolution → touchpoint  │
                           └───────────────┬──────────────────────────┘
                                           │
         ┌─────────────────────────────────▼─────────────────────────────────┐
         │  packages/modules/*   ← ALL business logic lives here             │
         │  identity · organization · social · marketing · crm ·             │
-        │  marketplace · billing · analytics                                │
+        │  marketplace · billing · analytics · intelligence                 │
         └─────────────────────────────────┬─────────────────────────────────┘
                                           │
-        ┌────────────────┬────────────────┼───────────────┬────────────────┐
-        ▼                ▼                ▼               ▼                ▼
-   PostgreSQL 16     Redis 7        Object storage    Providers      OTel / Sentry
-   (+RLS, outbox,   (queues, rate   (S3-compatible,   (social, ads,  (traces, metrics,
-    partitions)      limits, locks)  presigned URLs)   email, Stripe) logs, errors)
+   ┌───────────┬───────────┬──────────────┼──────────┬──────────┬──────────┐
+   ▼           ▼           ▼              ▼          ▼          ▼          ▼
+ PostgreSQL  Redis 7   Object storage  Providers  Model      Vector    OTel /
+ 16 (+RLS,  (queues,  (S3-compatible,  (social,   providers  index     Sentry
+ outbox,     rate      presigned URLs)  ads,       (Anthropic (pgvector)
+ partitions) limits)                    email,     OpenAI, …)
+                                        Stripe)
 ```
 
-The three processes are **deployment units, not architectural boundaries**. The
+The four processes are **deployment units, not architectural boundaries**. The
 architectural boundaries are the modules, and they are enforced in code
 ([03](03-repository-structure.md), [04](04-domain-architecture.md)).
+
+`apps/link` is separated from `apps/web` deliberately and early: the tracked-link redirect
+is the mechanism the entire attribution spine depends on ([09](09-analytics-architecture.md) §3),
+it has a p99 budget of 50 ms, and it must stay up through a dashboard incident. It is small
+enough that separating it costs almost nothing and large enough in consequence that
+co-locating it would be a mistake.
+
+### All three products are first-class from the start
+
+Commercial sequencing is **Social → Marketing → Marketplace**. Architectural standing is
+**equal**. Marketplace's domain model, contracts, events, permission catalogue and money
+primitives are designed and reviewed in the foundation phases alongside the others; only
+its *feature implementation* follows the commercial order. Concretely, that means the
+double-entry ledger, `Money` type, listing-type extensibility model and marketplace event
+contracts land in Phases 0–2, not Phase 7. Nothing about Marketplace is designed as
+disposable or retrofitted later.
 
 ## 2. Why a modular monolith rather than microservices
 
@@ -85,6 +109,9 @@ These are enforceable rules, not aspirations. Each has a mechanism.
 | 10 | **`any` is a build error.** | `noImplicitAny`, `strict`, and an ESLint rule banning explicit `any` and non-null `!` outside tests. Escape hatch is `unknown` + a parser. |
 | 11 | **Secrets never reach the client.** | Env schema splits `server` and `client` (`NEXT_PUBLIC_` prefix required for the latter); a build-time check fails if a server key is referenced in a client bundle. |
 | 12 | **Failure is a designed state.** | Every subsystem documents its failure mode and recovery in its architecture doc; retries are idempotent by construction. |
+| 13 | **No model provider SDK outside its adapter.** | `@anthropic-ai/sdk`, `openai` and peers are lint-banned everywhere except `packages/integrations/<provider>`. Product code depends on `IntelligencePort`, never on a vendor. |
+| 14 | **Every AI output carries provenance.** | Model, version, prompt version, inputs hash, grounding sources, cost and latency are persisted with the result. An output that cannot be explained cannot be shipped ([16](16-intelligence-architecture.md)). |
+| 15 | **AI never writes to the domain unattended.** | Intelligence produces *proposals*; a human or an explicitly-configured automation applies them, through the same application services and authorization as any other write. |
 
 ## 4. Request lifecycle (the canonical path)
 
@@ -130,5 +157,10 @@ connection-pool exhaustion and partial-write corruption in products of this kind
   incremental, cursor-based and capped ([07](07-integration-architecture.md)).
 - **No analytics that are not derived from stored facts.** Every headline number must be
   drillable to the rows that produced it ([09](09-analytics-architecture.md)).
+- **No AI calls scattered through UI components.** Every model interaction goes through the
+  intelligence layer, which owns prompts, grounding, routing, caching, cost control,
+  evaluation and provenance ([16](16-intelligence-architecture.md)).
+- **No Kubernetes or service mesh** until a demonstrated requirement exists
+  ([12](12-devops-architecture.md) §9).
 - **No auto-migrate on application boot.** Migrations are a discrete, gated pre-deploy job
   ([12](12-devops-architecture.md)).

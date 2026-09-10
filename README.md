@@ -3,25 +3,33 @@
 A multi-tenant operating system for business growth: **Social Growth OS**, **Marketplace**
 and **Marketing OS** on one shared platform.
 
+**Agency-first.** The primary customer is a marketing or social agency managing many
+clients — Organization → Team → Workspace — with direct businesses supported natively.
+
 ## Status
 
-**Architecture proposal — awaiting approval. No application code exists yet.**
+**Architecture approved (2026-09-10). Awaiting approval to begin structural implementation.
+No application code exists yet.**
 
 The workspace was inspected and found to be a clean greenfield repository. Rather than
 generating application files, this branch establishes the production architecture first —
-tenancy, module boundaries, the data model and the event/attribution spine are the decisions
-that cannot be cheaply reversed once real data exists.
+tenancy, module boundaries, the data model, the attribution spine and AI governance are the
+decisions that cannot be cheaply reversed once real data exists.
 
 ## Start here
 
-→ **[docs/README.md](docs/README.md)** — the full architecture document set (16 documents)
-and [12 Architecture Decision Records](docs/adr/README.md).
+→ **[19 — Approved architecture summary](docs/architecture/19-approved-summary.md)** —
+consolidated domain map, dependency graph, implementation sequence, remaining decisions and
+new risks.
 
-If you read only three:
+→ **[docs/README.md](docs/README.md)** — the full set: 20 architecture documents and
+[16 Architecture Decision Records](docs/adr/README.md).
 
-1. [Architecture overview](docs/architecture/01-overview.md) — the system's shape and the
-   principles that are mechanically enforced.
+If you read only four:
+
+1. [Approved summary](docs/architecture/19-approved-summary.md) — the whole thing in one page.
 2. [Data architecture](docs/architecture/05-data-architecture.md) — entities, tenancy,
    indexes, lifecycle, retention, migration strategy.
-3. [Risks & open questions](docs/architecture/15-risks.md) — including the questions that
-   need answers before implementation starts.
+3. [AI & intelligence architecture](docs/architecture/16-intelligence-architecture.md) —
+   how AI is a governed platform capability rather than scattered calls.
+4. [Phase 0 plan](docs/architecture/18-phase-0-plan.md) — exactly what gets built first.

@@ -89,10 +89,31 @@ type Permission =
   /* … */;
 ```
 
-**System roles** (org scope): `owner`, `admin`, `manager`, `member`, `analyst`, `billing`,
-`guest`. **Workspace scope**: `workspace_admin`, `editor`, `contributor`, `approver`,
-`viewer`. Organizations may define **custom roles** as permission sets — required by
+Roles are assignable at **three scopes**, matching the organization → team → workspace
+hierarchy:
+
+| Scope | System roles | Typical agency use |
+| --- | --- | --- |
+| Organization | `owner`, `admin`, `analyst`, `billing`, `member` | Agency principals, finance, ops |
+| **Team** | `team_lead`, `team_member` | A pod lead who needs every client their pod serves — including clients added next month |
+| Workspace | `workspace_admin`, `editor`, `contributor`, `approver`, `viewer`, `client_guest` | Per-client staffing; `client_guest` is the client's own reviewer |
+
+Organizations may define **custom roles** as permission sets at any scope — required by
 agencies and enterprises, and cheap given the catalogue is data.
+
+**Team scope is the mechanism that makes agency access maintainable.** Without it, adding a
+client means granting access individually to every person in the pod, and offboarding means
+finding every one of those grants. With it, staffing changes are team-membership changes and
+client changes are workspace-to-team changes — two small, auditable operations instead of a
+combinatorial one.
+
+**`client_guest` is a first-class role, not an afterthought.** Agencies need their client to
+review and approve content without seeing the agency's other clients, its costs, or its
+other staff. The role is workspace-scoped, read-mostly, restricted to approval and comment
+permissions, and explicitly denied every billing, member-management, analytics-cost and
+integration-credential permission. It is the most security-sensitive role in the system
+because it is held by someone outside the tenant organization, and it gets its own
+authorization test suite.
 
 **Resource-level grants** (`resource_grants`) handle sharing a single campaign or report
 with someone who otherwise lacks access — the common case that pure RBAC handles badly.
@@ -100,18 +121,32 @@ with someone who otherwise lacks access — the common case that pure RBAC handl
 ### Evaluation order
 
 ```
-deny if session invalid / expired / MFA required and unsatisfied
-deny if organization suspended or subscription in a blocking state
-deny if the actor is not a member of the target organization
-deny if the resource is workspace-scoped and the actor lacks that workspace
-allow if a role assignment grants the permission at org or workspace scope
+deny  if session invalid / expired / MFA required and unsatisfied
+deny  if organization suspended or subscription in a blocking state
+deny  if the actor is not a member of the target organization
+deny  if the resource is workspace-scoped and that workspace is not in the actor's
+      accessible-workspace set
+allow if a role assignment grants the permission at ORGANIZATION scope
+allow if a role assignment grants it at TEAM scope and the resource's workspace is
+      owned by, or granted to, that team
+allow if a role assignment grants it at WORKSPACE scope for this workspace
 allow if a resource_grant grants it on this specific resource
 allow if an ownership rule applies (e.g. 'crm.deal:update' on a deal you own)
 otherwise deny            ← default deny, always
 ```
 
-Resolved permission sets are cached per (session, organization) for 60s in Redis and
-invalidated eagerly on role change, membership change or subscription state change.
+**The accessible-workspace set** is computed once per request from: workspaces directly
+assigned to the actor, plus workspaces owned by teams the actor belongs to, plus workspaces
+reachable through `team_workspace_access` for those teams. It is then passed into the
+database as `app.workspace_ids` for RLS to enforce. Computing it once and handing the
+database a concrete set — rather than making every policy re-derive it through joins — is
+what keeps three-level hierarchy cheap at query time.
+
+Resolved permission sets and workspace sets are cached per (session, organization) for 60s
+in Redis and invalidated eagerly on role change, team-membership change, workspace-to-team
+move, membership change or subscription state change. **Membership and team removals bypass
+the cache entirely** — an agency removing a contractor from a pod expects it to take effect
+immediately, not within a minute.
 
 **ReBAC migration path:** if resource-sharing graphs deepen (nested folders, delegated
 agency hierarchies), the policy engine's interface allows swapping the evaluator for
@@ -133,9 +168,16 @@ This is the control the entire multi-tenant promise rests on, so it is specified
 BEGIN;
   SET LOCAL app.organization_id = '…';
   SET LOCAL app.user_id         = '…';
+  SET LOCAL app.workspace_ids   = '{…,…}';   -- the resolved accessible-workspace set
   -- all statements now filtered by RLS
 COMMIT;
 ```
+
+The workspace set is resolved by the authorization layer from the actor's org, team and
+workspace role assignments ([§3](#3-authorization)) *before* the transaction opens. The
+database never derives it, and application code never chooses it — the composition root
+wires the resolver, and the unit of work refuses to open a tenant-scoped transaction
+without a resolved actor context.
 
 `SET LOCAL` (transaction-scoped) rather than `SET` (session-scoped) is deliberate: it is
 correct under a transaction-mode connection pooler, where a session-level setting could
@@ -180,3 +222,6 @@ cross-tenant data leak.
 | Compromised session token | Revoke session; all devices listed and revocable; anomalous-IP detection raises a notification |
 | Leaked API key | Per-key revocation; prefix-based secret scanning; key never recoverable after creation, so rotation is the only remedy — by design |
 | Postgres role misconfigured with BYPASSRLS | CI assertion fails the deploy |
+| `app.workspace_ids` empty or unset | Workspace-scoped policies match nothing → zero rows. Fails closed, same as a missing organization |
+| Actor removed from a team mid-session | Membership changes bypass the permission cache; the next request recomputes the workspace set and loses access immediately |
+| A workspace moved between teams | `organization.workspace.moved` invalidates every cached workspace set in the organization |

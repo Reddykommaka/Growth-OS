@@ -1,6 +1,6 @@
 # ADR-0012 — Integer minor units and a double-entry ledger
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 The marketplace moves money between buyers, the platform and sellers: order totals, platform

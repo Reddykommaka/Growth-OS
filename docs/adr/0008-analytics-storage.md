@@ -1,6 +1,6 @@
 # ADR-0008 — Postgres-first analytics behind an AnalyticsQueryPort
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 Touchpoints, conversions, clicks, email events and metric snapshots grow far faster than

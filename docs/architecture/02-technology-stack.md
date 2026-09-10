@@ -54,6 +54,7 @@ nothing to the public API we must ship regardless. [ADR-0004](../adr/0004-api-su
 | **PostgreSQL** | 16+ | Row-Level Security (our tenant-isolation backstop), declarative partitioning (analytics facts), `jsonb` with GIN, full-text search, `pg_trgm`, window functions, `generated` columns, logical replication. No other single datastore covers this product's needs. |
 | **Drizzle ORM** | 0.45.2 | SQL-first with full TS inference. Critically: it does not fight `SET LOCAL`, RLS, CTEs, window functions, partial/expression indexes or partitioned tables — all of which our tenancy and analytics designs depend on. Migrations are readable SQL we review, not opaque engine output. |
 | **Migrations: `drizzle-kit generate` → hand-reviewed SQL, applied by a dedicated runner** | — | Every migration is checked-in SQL. Anything RLS-, partition- or index-concurrency-related is written by hand. |
+| **pgvector** | current | Embeddings for retrieval, in the same database as the data being retrieved — so a tenant filter is a `WHERE` clause on an already-isolated table rather than a second system's access-control model to get right. A dedicated vector database is deferred with a named trigger ([12](12-devops-architecture.md) §9). |
 | **Redis** | 7+ | Queues (BullMQ), token-bucket rate limits, distributed locks, short-TTL caches. Never the system of record. |
 | **S3-compatible object storage** | — | Media library, exports, uploads. Presigned direct upload/download; bytes never proxy through our app servers. |
 
@@ -81,7 +82,7 @@ alternative; rejected because its `latest` tag currently points at an 8.0 releas
 | OAuth 2.0 / OIDC client flows | **arctic** 3.7.0 — per-provider flow correctness (PKCE, state, nonce) without owning our user tables. |
 | Crypto primitives | **oslo** 1.2.1 + **`@node-rs/argon2`** 2.2.0 (Argon2id password hashing) |
 | Email (transactional) | Behind an `EmailPort`; initial adapter Resend or SES. Provider is replaceable by design. |
-| AI/LLM features | Behind an `LlmPort`; adapters for `@anthropic-ai/sdk` / `openai`. No provider SDK is imported outside its adapter. |
+| AI / model providers | Behind `ModelProviderPort`; adapters for `@anthropic-ai/sdk` (0.124.0) and `openai` (7.13.0). **No model SDK is imported outside its adapter — lint-enforced.** Model selection is a declarative router policy, never a hard-coded constant ([ADR-0013](../adr/0013-model-provider-abstraction.md)). |
 | Enterprise SSO (SAML/OIDC) + SCIM | Deferred to Phase 7 behind an `EnterpriseIdentityPort`; WorkOS as the likely adapter. |
 
 ## 7. Quality, tooling and observability

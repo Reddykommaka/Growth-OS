@@ -1,6 +1,6 @@
 # ADR-0007 — Transactional outbox for domain events
 
-**Status:** Proposed · **Date:** 2026-09-10
+**Status:** Accepted · **Date:** 2026-09-10 · **Approved:** 2026-09-10
 
 ## Context
 Domain writes must reliably produce side effects (analytics facts, automation triggers,

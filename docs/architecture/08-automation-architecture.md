@@ -107,7 +107,31 @@ from the last committed step. There is no "in-flight state" that a restart can l
 
 **Node types:** trigger, condition (branch), action, delay (relative or until an absolute
 time in the workspace timezone), parallel/join, loop over a bounded collection, wait-for-event
-(with timeout), sub-automation call.
+(with timeout), sub-automation call, and **intelligence nodes**.
+
+### Intelligence nodes
+
+Automations can call the intelligence layer — generate a caption variant, classify an inbound
+message, score a lead, summarise a week of listening signals, propose a budget shift. These
+are ordinary action nodes with three additional constraints, because a model call is not an
+ordinary action:
+
+1. **Cost is checked before invocation.** The step consults `ai_budgets` for the organization
+   and workspace. A step that would exceed a hard-stop budget fails with a clear, actionable
+   error rather than silently spending. An automation must never be able to run up an
+   unbounded bill overnight — this is the single most likely way a customer gets a nasty
+   surprise, so the guard is in the engine, not in each capability.
+2. **Latency is bounded and non-blocking.** Intelligence steps have their own timeout and run
+   on the `intelligence` queue. A slow or unavailable model provider puts the run into
+   `waiting`, never into a stalled worker.
+3. **Autonomy is explicit.** A workflow node declares whether its output is applied
+   automatically or queued as a proposal for human approval. Auto-apply is opt-in per node,
+   restricted by permission (`intelligence.action:auto_apply`), and always recorded in
+   `audit_events` with the invocation id — so "why did this post go out with that caption?"
+   resolves to a specific model, prompt version and input.
+
+Every intelligence step writes an `ai_invocations` row like any other capability call, so an
+automation's model spend is attributable to the automation, the workspace and the client.
 
 ### Correctness rules
 
@@ -147,4 +171,7 @@ the design target.
 | Poison job | Quarantined after threshold; DLQ alert |
 | Duplicate event delivery | Consumers dedupe on event id |
 | Clock skew across workers | All scheduling decisions use database `now()`, never worker wall-clock |
+| Model provider slow or down | Intelligence step defers on the `intelligence` queue; run enters `waiting`; non-AI branches continue. No critical path blocks on a model |
+| AI budget exhausted mid-run | Step fails with a typed `BudgetExceeded` error; the run halts at that node with a clear operator message rather than partially applying |
+| Model returns unusable output | Structured outputs are schema-validated; a failed parse is retried once with a repair prompt, then the step fails rather than writing garbage downstream |
 | Queue backlog spike | Per-queue depth and oldest-job-age alerts; workers scale on queue depth, not CPU |

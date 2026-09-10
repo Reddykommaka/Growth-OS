@@ -21,8 +21,11 @@ lower-trust environment is the most common way customer PII escapes its controls
 
 ## 2. Runtime topology
 
-All three apps ship as **container images from one multi-stage Dockerfile**, deployed to a
-managed container platform with managed PostgreSQL and managed Redis.
+All four apps ship as **container images from one multi-stage Dockerfile**, deployed to a
+managed container platform with managed PostgreSQL and managed Redis. Nothing in the
+application knows which platform it runs on, and no platform-proprietary primitive appears
+in the deployment path — the portability requirement is met by construction, not by
+intention.
 
 ```
    ┌── CDN / WAF ──┐
@@ -34,9 +37,10 @@ managed container platform with managed PostgreSQL and managed Redis.
    │               │
    │        PgBouncer (transaction pooling)
    │               ▼
-   │      PostgreSQL primary  ──▶ read replica(s)
+   │      PostgreSQL primary  ──▶ read replica(s)      [+ pgvector for retrieval]
    │      Redis (persistence enabled)
-   └──▶  Object storage (separate origin for user content)
+   ├──▶  Object storage (separate origin for user content)
+   └──▶  Model providers (egress-controlled, per-tenant allowlist honoured by the router)
 ```
 
 Notes that are decisions, not incidentals:
@@ -45,7 +49,14 @@ Notes that are decisions, not incidentals:
 - **Workers autoscale on queue depth and oldest-job age**, not CPU. A backlog of delayed
   publishing jobs consumes almost no CPU while being an urgent customer-facing problem.
 - **The link redirect service is separated early** — it is on a different availability and
-  latency profile from the dashboard, and it must survive a dashboard incident.
+  latency profile from the dashboard, and it must survive a dashboard incident. It is the
+  attribution spine's entry point ([09](09-analytics-architecture.md) §3), so its uptime is a
+  data-completeness concern, not only a user-experience one.
+- **Intelligence work runs on its own queue class** inside `worker`, with its own
+  concurrency and its own cost guard. A separate `apps/intelligence` process is deliberately
+  *not* created: the workload is I/O-bound waiting on provider APIs, not CPU-bound, so it
+  needs isolation of concurrency and budget rather than of process. Extracting it later is a
+  queue-routing change if its profile ever diverges.
 - **PgBouncer in transaction mode** is why tenant context uses `SET LOCAL`
   ([06](06-identity-and-access.md) §4). The pooling choice and the isolation mechanism are
   the same decision.
@@ -100,6 +111,10 @@ investigation.
 **Metrics** — RED (rate, errors, duration) per endpoint and per job; plus the metrics that
 are specific to this product and are the ones that actually predict customer pain:
 
+- AI spend per organization and per capability, token throughput, provider failover rate,
+  cache hit rate, evaluation-score drift per prompt version
+- recommendation applied-rate and dismissal-rate per detector
+- ledger balance assertion (must be exactly zero; non-zero pages)
 - outbox lag (oldest unpublished event)
 - queue depth and oldest job age, per queue
 - scheduled-post publish punctuality (actual − scheduled)
@@ -131,7 +146,8 @@ rather than with graphs moving:
 | Webhook acknowledgement p99 | < 100 ms |
 
 Paging alerts: error-budget burn, outbox lag, queue age, publish punctuality breach,
-replication lag, DLQ growth, credential-decrypt failures, authorization-denial spike.
+replication lag, DLQ growth, credential-decrypt failures, authorization-denial spike,
+non-zero ledger balance, anomalous AI spend.
 Everything else is a ticket. Every paging alert has a runbook in `docs/runbooks/`, and an
 alert without one is deleted or downgraded.
 
@@ -167,8 +183,23 @@ console changes are drift and are reverted — the console is for reading, not w
 
 ## 9. Deferred, deliberately
 
-Kubernetes, service mesh, multi-region active-active and a data warehouse are all deferred.
+**Kubernetes, service mesh, multi-region active-active and a data warehouse are all
+deferred, per Decision 5** — no distributed complexity without a demonstrated requirement.
+
 Each solves a problem this system does not yet have, and each adds an operational surface
-that must be staffed. The architecture does not preclude any of them: containers make the
-platform portable, the event spine makes extraction possible, and the `AnalyticsQueryPort`
-makes a warehouse a swap rather than a rewrite.
+that must be staffed by people we would rather have building the product. A managed
+container platform with autoscaling covers the runtime need; the event spine covers the
+decoupling need; managed Postgres and Redis cover the data need.
+
+The architecture precludes none of them, and each has a named seam:
+
+| Deferred | Seam that keeps it available | Trigger to reconsider |
+| --- | --- | --- |
+| Kubernetes | Everything is an OCI container with no platform-proprietary primitives | Scheduling needs the managed platform cannot express (multi-tenant node isolation, GPU pools) |
+| Service extraction | The event spine + module contracts ([ADR-0001](../adr/0001-modular-monolith.md)) | A module's load profile genuinely diverges |
+| Data warehouse | `AnalyticsQueryPort` ([ADR-0008](../adr/0008-analytics-storage.md)) | Measured p95 report latency or fact-table size threshold |
+| Multi-region | `organizations.data_region` from the first migration | A residency contract or a latency SLO we cannot otherwise meet |
+| Dedicated vector database | Retrieval sits behind the intelligence layer's grounding interface | pgvector recall or latency measured insufficient at tenant scale |
+
+Each row states what would change our minds. A deferral without a trigger is procrastination;
+a deferral with one is a plan.
