@@ -75,7 +75,8 @@
             "skipBlankLines": true,
             "skipIifes": true
           }
-        }
+        },
+        "useLiteralKeys": "off"
       },
       "correctness": {
         "noUnusedVariables": "error",

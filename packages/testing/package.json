@@ -11,9 +11,14 @@
   },
   "scripts": {
     "build": "tsc --build",
+    "test:integration": "vitest run",
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {
-    "@growth-os/config": "workspace:*"
+    "@growth-os/config": "workspace:*",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
   }
 }
