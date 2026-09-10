@@ -90,8 +90,29 @@ alternative; rejected because its `latest` tag currently points at an 8.0 releas
 | Concern | Choice | Rationale |
 | --- | --- | --- |
 | Monorepo | **pnpm workspaces** 10.33 + **Turborepo** 2.10 | pnpm's strict, non-hoisted `node_modules` makes undeclared cross-package imports *fail*, which turns our module boundaries into a mechanical guarantee. Turbo gives content-hashed task caching. Nx rejected: heavier, more generators, more opinion than we need. |
-| Lint & format | **Biome** 2.5.12 (format + fast lint) + **ESLint** 10 for the rules Biome lacks (import boundaries, React hooks, a11y) | Biome for speed on every save; ESLint only where it earns it. |
-| Boundary enforcement | **dependency-cruiser** + package `exports` maps | Architecture violations fail CI. |
+| Lint & format | **Biome** 2.5.12 — the sole linter | Biome 2.5 covers everything we need: `noExplicitAny`, `noNonNullAssertion`, `noRestrictedImports` (with per-path overrides), complexity and function-length caps, React hooks and a11y rules. **ESLint and `typescript-eslint` were dropped during Phase 0** — see below. |
+| Boundary enforcement | **dependency-cruiser** 18.2 + package `exports` maps + pnpm strict resolution | Architecture violations fail CI. |
+| File-length cap | `tools/scripts/check-file-size.mjs` | Biome has no max-lines-per-file rule; the 400-line cap from [03](03-repository-structure.md) §5 is enforced by this script and asserted by the architecture test suite. |
+
+### Two toolchain findings from Phase 0 implementation
+
+**`typescript-eslint` does not support TypeScript 7.** Its published peer range is
+`>=4.8.4 <6.1.0`. Adopting it would have meant either pinning the whole repository to an
+older compiler or running a linter against an unsupported parser. Since every rule we
+actually required exists natively in Biome — which ships its own parser and therefore has
+no TypeScript version coupling at all — ESLint was dropped entirely. This removes a
+standing upgrade constraint rather than merely working around one.
+
+**`dependency-cruiser` also does not yet support TypeScript ≥7**, and its failure mode is
+dangerous: without a compatible compiler API it silently falls back, cruises **zero
+modules**, and reports "no dependency violations found". A boundary check that enforces
+nothing while appearing green is worse than no check. Two mitigations, both in place:
+
+1. `pnpm.packageExtensions` pins a **parser-only** `typescript@6.0.3` inside
+   dependency-cruiser's own `node_modules`. The build compiler is unaffected and stays on
+   7.x.
+2. The architecture test suite asserts `summary.totalCruised` is above a floor, so a
+   configuration that stops parsing fails the build loudly instead of passing silently.
 | Unit / integration tests | **Vitest** 5.0.0 | Same transform pipeline as the app; fast watch mode. |
 | E2E / a11y | **Playwright** 1.63.0 + `@axe-core/playwright` | Browsers pre-provisioned in this environment. |
 | Errors | **Sentry** 10.74 | Release health, source maps, user-impact grouping. |

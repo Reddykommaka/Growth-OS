@@ -130,10 +130,12 @@ one everybody agrees with:
    dependency. Accidental coupling fails at install/build, not at review.
 3. **dependency-cruiser rules in CI** — encode the layering rule, the "apps may only import
    contracts" rule, and a no-cycles rule.
-4. **ESLint `no-restricted-imports`** — bans `drizzle-orm`, `ioredis`, `bullmq` and
-   provider SDKs from `domain/` and `application/` directories, and bans model-provider SDKs
-   (`@anthropic-ai/sdk`, `openai`) **everywhere except `packages/integrations/*`**
-   ([ADR-0013](../adr/0013-model-provider-abstraction.md)).
+4. **Biome `noRestrictedImports`, scoped by path override** — bans `drizzle-orm`,
+   `postgres`/`pg`, `ioredis`, `bullmq`, `stripe` and `@aws-sdk/*` from `domain/` and
+   `application/`, and bans model-provider SDKs (`@anthropic-ai/sdk`, `openai`,
+   `@google/generative-ai`) **everywhere except `packages/integrations/*`**
+   ([ADR-0013](../adr/0013-model-provider-abstraction.md)). Biome also enforces the
+   `noExplicitAny` and `noNonNullAssertion` bans and the complexity/function-length caps.
 
 Each mechanism is itself tested: `boundaries.test.ts` holds deliberately illegal imports and
 asserts each is rejected. A misconfigured rule that silently enforces nothing is worse than

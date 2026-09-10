@@ -1,0 +1,144 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/.next",
+      "!**/.turbo",
+      "!**/coverage",
+      "!**/node_modules",
+      "!**/pnpm-lock.yaml",
+      "!tools/architecture-tests/fixtures"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noConsole": {
+          "level": "error",
+          "options": {
+            "allow": ["error"]
+          }
+        },
+        "noDoubleEquals": "error"
+      },
+      "style": {
+        "noNonNullAssertion": "error",
+        "useConst": "error",
+        "useImportType": "error",
+        "noParameterAssign": "error",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@anthropic-ai/sdk": "Model provider SDKs may only be imported inside packages/integrations/*. Product code depends on IntelligencePort (ADR-0013).",
+              "openai": "Model provider SDKs may only be imported inside packages/integrations/*. Product code depends on IntelligencePort (ADR-0013).",
+              "@google/generative-ai": "Model provider SDKs may only be imported inside packages/integrations/*. Product code depends on IntelligencePort (ADR-0013)."
+            }
+          }
+        }
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": {
+            "maxAllowedComplexity": 15
+          }
+        },
+        "noExcessiveLinesPerFunction": {
+          "level": "error",
+          "options": {
+            "maxLines": 80,
+            "skipBlankLines": true,
+            "skipIifes": true
+          }
+        }
+      },
+      "correctness": {
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/packages/modules/*/src/domain/**",
+        "**/packages/modules/*/src/application/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "drizzle-orm": "Persistence belongs in infrastructure/. domain/ is pure and application/ depends on ports (03-repository-structure.md \u00a72).",
+                  "drizzle-orm/pg-core": "Persistence belongs in infrastructure/.",
+                  "postgres": "Persistence belongs in infrastructure/.",
+                  "pg": "Persistence belongs in infrastructure/.",
+                  "ioredis": "Redis access belongs in infrastructure/; application/ depends on the cache or jobs port.",
+                  "bullmq": "Queue access belongs in infrastructure/; application/ depends on the jobs port.",
+                  "@anthropic-ai/sdk": "Model provider SDKs may only be imported inside packages/integrations/* (ADR-0013).",
+                  "openai": "Model provider SDKs may only be imported inside packages/integrations/* (ADR-0013).",
+                  "stripe": "Provider SDKs belong in packages/integrations/*; application/ depends on PaymentPort.",
+                  "@aws-sdk/client-s3": "Provider SDKs belong in packages/integrations/*; application/ depends on StoragePort."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/packages/integrations/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.test.ts", "**/*.test.tsx", "**/packages/testing/**", "tools/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noConsole": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          }
+        }
+      }
+    }
+  ]
+}

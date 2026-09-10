@@ -1,0 +1,20 @@
+{
+  "name": "@growth-os/architecture-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Proves the boundary-enforcement mechanisms reject violations. Holds deliberately illegal fixtures under fixtures/ and asserts each linter rejects them. Never built, never shipped.",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@growth-os/module-crm": "workspace:*",
+    "@growth-os/module-social": "workspace:*",
+    "@growth-os/types": "workspace:*"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "18.2.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.0"
+  }
+}
