@@ -93,10 +93,10 @@ describe('redaction removes secrets before serialisation', () => {
 
 describe('redact() is safe on hostile input', () => {
   it('handles circular structures', () => {
-    const a: Record<string, unknown> = { token: SECRET };
-    // biome-ignore lint/complexity/useLiteralKeys: tsconfig sets
-    // noPropertyAccessFromIndexSignature, which requires bracket access on a Record.
-    a['self'] = a;
+    // A declared shape rather than a Record: no index signature, so the self-reference
+    // needs neither bracket access nor a lint suppression.
+    const a: { token: string; self?: unknown } = { token: SECRET };
+    a.self = a;
     const result = JSON.stringify(redact(a));
     expect(result).not.toContain(SECRET);
     expect(result).toContain('[circular]');
