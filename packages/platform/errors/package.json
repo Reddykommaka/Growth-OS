@@ -11,9 +11,13 @@
   },
   "scripts": {
     "build": "tsc --build",
+    "test": "vitest run",
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {
     "@growth-os/types": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "5.0.0"
   }
 }

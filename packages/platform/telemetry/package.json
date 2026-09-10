@@ -11,10 +11,20 @@
   },
   "scripts": {
     "build": "tsc --build",
+    "test": "vitest run",
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "dependencies": {
     "@growth-os/config": "workspace:*",
-    "@growth-os/logger": "workspace:*"
+    "@growth-os/logger": "workspace:*",
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "0.68.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
+    "@opentelemetry/resources": "2.2.0",
+    "@opentelemetry/sdk-node": "0.222.0",
+    "@opentelemetry/semantic-conventions": "1.39.0"
+  },
+  "devDependencies": {
+    "vitest": "5.0.0"
   }
 }

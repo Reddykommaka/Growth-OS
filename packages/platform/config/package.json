@@ -11,7 +11,13 @@
   },
   "scripts": {
     "build": "tsc --build",
+    "test": "vitest run",
     "clean": "tsc --build --clean && rm -rf dist"
   },
-  "dependencies": {}
+  "dependencies": {
+    "zod": "4.6.1"
+  },
+  "devDependencies": {
+    "vitest": "5.0.0"
+  }
 }

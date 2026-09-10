@@ -1,7 +1,16 @@
-// @growth-os/config
-//
-// Package skeleton established in Phase 0 (work item 0.1).
-// Implementation lands in Phase 0, work item 0.3.
-// The exports map in package.json is the package's only public surface.
+/**
+ * @growth-os/config — validated, fail-fast runtime configuration.
+ */
 
-export {};
+export { findServerEnvLeaks, type LeakFinding } from './guard.js';
+export { ConfigurationError, loadClientEnv, loadServerEnv, resetServerEnvCache } from './load.js';
+export {
+  CLIENT_ENV_KEYS,
+  type ClientEnv,
+  clientEnvSchema,
+  ENVIRONMENTS,
+  type Environment,
+  SERVER_ENV_KEYS,
+  type ServerEnv,
+  serverEnvSchema,
+} from './schema.js';

@@ -109,7 +109,10 @@ describe('mechanism 3: dependency-cruiser rejects architectural violations', () 
 
 describe('mechanism 3: the real source tree is clean', () => {
   it('has no architectural violations', () => {
-    const result = depcruise(['packages/**/*.ts', 'apps/**/*.ts']);
+    // Bare directories, not globs: dependency-cruiser does its own scanning and covers
+    // exactly the tracked sources. A recursive shell glob instead walks pnpm's workspace
+    // symlinks under node_modules, reporting the same file many times and taking minutes.
+    const result = depcruise(['packages', 'apps']);
     const report = JSON.parse(result.stdout) as {
       summary: { totalCruised: number; error: number; violations: { rule: { name: string } }[] };
     };
