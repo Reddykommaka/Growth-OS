@@ -15,14 +15,15 @@
     "typecheck:clean": "tsc --build --clean && tsc --build",
     "test": "turbo run test",
     "test:integration": "turbo run test:integration",
-    "lint": "pnpm run lint:format && pnpm run lint:code && pnpm run lint:boundaries && pnpm run lint:filesize && pnpm run lint:clientenv",
+    "lint": "pnpm run lint:format && pnpm run lint:code && pnpm run lint:boundaries && pnpm run lint:filesize && pnpm run lint:clientenv && pnpm run lint:migrations",
     "lint:format": "biome format .",
     "lint:code": "biome lint .",
     "lint:boundaries": "depcruise --config .dependency-cruiser.cjs --output-type err packages apps",
     "lint:filesize": "node tools/scripts/check-file-size.mjs apps packages",
     "format": "biome check --write .",
     "clean": "turbo run clean",
-    "lint:clientenv": "node tools/scripts/check-client-env-leaks.mjs apps/web/src packages/ui/src"
+    "lint:clientenv": "node tools/scripts/check-client-env-leaks.mjs apps/web/src packages/ui/src",
+    "lint:migrations": "node tools/scripts/lint-migrations.mjs db/migrations"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",

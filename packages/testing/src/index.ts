@@ -31,3 +31,14 @@ export {
   type TestDatabase,
 } from './pg/harness.js';
 export { applyMigrations, currentSchemaVersion, type MigrationResult } from './pg/migrate.js';
+export {
+  checkFailsClosedWithoutContext,
+  checkRlsCompleteness,
+  checkRolePosture,
+  type IsolationProbeResult,
+  probeCrossTenantAccess,
+  type RlsFinding,
+  type RolePostureFinding,
+  TENANT_COLUMN,
+  tenantScopedTables,
+} from './pg/structural.js';

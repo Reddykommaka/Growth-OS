@@ -118,6 +118,7 @@ a historical report does not change when today's rate moves.
 | Seller fraud | Stripe Connect KYC; payout hold for new sellers; dispute workflow; ledger makes exposure exactly computable |
 | Price/commission tampering | Server-side resolution and snapshotting (§4) |
 | Cross-tenant leakage | Published listings are cross-tenant-readable **by explicit RLS policy**, never by disabling RLS. Drafts, orders, payouts and seller financials are not. An order is visible to exactly the buyer and seller organizations. This is the one place cross-tenant reads are legal, so it carries the heaviest authorization test suite ([11](11-testing-architecture.md) §4) |
+| **Asymmetric RLS predicate** | The listings policy is the one place in the system where `USING` is deliberately broader than the write rule, which makes an explicit narrow `WITH CHECK` **load-bearing rather than stylistic**: without it PostgreSQL reuses the broad read predicate for writes, and a tenant can insert a listing carrying another organization's `seller_organization_id` simply by setting `status = 'published'`. Verified empirically in Phase 0 — see [06-identity-and-access.md](06-identity-and-access.md) §4 |
 | Scraping | Rate limits, pagination caps, non-sequential ids, bot detection on discovery |
 
 ## 7. Discovery

@@ -195,8 +195,38 @@ CREATE POLICY tenant_isolation ON content_items
   WITH CHECK (organization_id = current_setting('app.organization_id', true)::uuid);
 ```
 
-`WITH CHECK` matters as much as `USING`: without it, a tenant could *insert* rows
-belonging to another organization even though it cannot read them.
+**On `WITH CHECK` — corrected during Phase 0 implementation.** An earlier draft of this
+document claimed that omitting `WITH CHECK` lets a tenant insert rows belonging to another
+organization. That is **not** how PostgreSQL behaves, and the claim was verified false
+against a live cluster:
+
+> When `WITH CHECK` is omitted, PostgreSQL uses the `USING` expression as the write
+> predicate as well.
+
+So for a *symmetric* policy — where the read rule and the write rule are the same
+expression, which is the case for almost every tenant-scoped table — omitting `WITH CHECK`
+is not itself a hole.
+
+The omission becomes a real vulnerability when **`USING` is deliberately broader than the
+write rule**. Marketplace is exactly that case
+([17-marketplace-architecture.md](17-marketplace-architecture.md) §6): published listings
+are readable across tenants, so the read predicate is
+`status = 'published' OR seller_organization_id = <current org>`. With no explicit
+`WITH CHECK`, that broad predicate also governs writes, and a tenant can insert a row
+carrying **another organization's** `seller_organization_id` as long as it sets
+`status = 'published'`. Measured behaviour, not theory:
+
+| Policy shape | `WITH CHECK` | Insert of another org's row |
+| --- | --- | --- |
+| `USING (org = current_org)` | omitted | **blocked** (falls back to `USING`) |
+| `USING (org = current_org)` | explicit, same | blocked |
+| `USING (status='published' OR org = current_org)` | omitted | **ACCEPTED — the hole** |
+| `USING (status='published' OR org = current_org)` | explicit, narrow | blocked |
+
+We therefore still require an explicit `WITH CHECK` on **every** policy, and CI still fails
+a policy without one — but for the correct reason: it forces the author to state the write
+rule deliberately rather than inherit whatever the read rule happens to be. The tables where
+that inheritance is wrong are precisely the ones where a mistake is most costly.
 
 **Structural guarantees, verified in CI:**
 1. A test enumerates `information_schema` and fails if any table with an `organization_id`
