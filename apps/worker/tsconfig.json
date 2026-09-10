@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ],
+  "references": [
+    {
+      "path": "../../packages/platform/config"
+    },
+    {
+      "path": "../../packages/platform/logger"
+    },
+    {
+      "path": "../../packages/platform/errors"
+    }
+  ]
+}

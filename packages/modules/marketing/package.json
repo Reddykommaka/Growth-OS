@@ -1,0 +1,24 @@
+{
+  "name": "@growth-os/module-marketing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contracts": {
+      "types": "./dist/contracts/index.d.ts",
+      "import": "./dist/contracts/index.js"
+    },
+    "./infrastructure": {
+      "types": "./dist/infrastructure/index.d.ts",
+      "import": "./dist/infrastructure/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {
+    "@growth-os/types": "workspace:*",
+    "@growth-os/errors": "workspace:*"
+  }
+}

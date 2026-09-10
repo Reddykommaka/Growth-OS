@@ -1,0 +1,28 @@
+{
+  "name": "growth-os",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Growth OS — multi-tenant operating system for business growth",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.0.0 <23",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "tsc --build --verbose",
+    "typecheck:clean": "tsc --build --clean && tsc --build",
+    "test": "turbo run test",
+    "test:integration": "turbo run test:integration",
+    "lint": "turbo run lint",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint:boundaries": "depcruise --config .dependency-cruiser.cjs apps packages",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "2.10.12",
+    "typescript": "7.0.2"
+  }
+}

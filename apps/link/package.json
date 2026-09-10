@@ -1,0 +1,16 @@
+{
+  "name": "@growth-os/app-link",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tracked-link redirect service (attribution spine entry point)",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {
+    "@growth-os/config": "workspace:*",
+    "@growth-os/logger": "workspace:*",
+    "@growth-os/errors": "workspace:*"
+  }
+}

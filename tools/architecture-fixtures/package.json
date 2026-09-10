@@ -1,0 +1,13 @@
+{
+  "name": "@growth-os/architecture-fixtures",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deliberately illegal code used to prove the boundary-enforcement mechanisms actually reject violations. Never built, never shipped.",
+  "scripts": {},
+  "dependencies": {
+    "@growth-os/module-social": "workspace:*",
+    "@growth-os/module-crm": "workspace:*",
+    "@growth-os/types": "workspace:*"
+  }
+}

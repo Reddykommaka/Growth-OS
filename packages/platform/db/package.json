@@ -1,0 +1,21 @@
+{
+  "name": "@growth-os/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {
+    "@growth-os/types": "workspace:*",
+    "@growth-os/errors": "workspace:*",
+    "@growth-os/logger": "workspace:*"
+  }
+}

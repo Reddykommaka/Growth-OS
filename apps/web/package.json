@@ -1,0 +1,16 @@
+{
+  "name": "@growth-os/app-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Next.js dashboard, marketplace storefront and public pages",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {
+    "@growth-os/config": "workspace:*",
+    "@growth-os/logger": "workspace:*",
+    "@growth-os/errors": "workspace:*"
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/platform/types"
+    },
+    {
+      "path": "packages/platform/errors"
+    },
+    {
+      "path": "packages/platform/config"
+    },
+    {
+      "path": "packages/platform/logger"
+    },
+    {
+      "path": "packages/platform/telemetry"
+    },
+    {
+      "path": "packages/platform/db"
+    },
+    {
+      "path": "packages/platform/events"
+    },
+    {
+      "path": "packages/platform/jobs"
+    },
+    {
+      "path": "packages/platform/cache"
+    },
+    {
+      "path": "packages/platform/ratelimit"
+    },
+    {
+      "path": "packages/platform/authn"
+    },
+    {
+      "path": "packages/platform/authz"
+    },
+    {
+      "path": "packages/platform/entitlements"
+    },
+    {
+      "path": "packages/platform/audit"
+    },
+    {
+      "path": "packages/platform/notifications"
+    },
+    {
+      "path": "packages/platform/files"
+    },
+    {
+      "path": "packages/platform/search"
+    },
+    {
+      "path": "packages/platform/i18n"
+    },
+    {
+      "path": "packages/platform/automation"
+    },
+    {
+      "path": "packages/modules/identity"
+    },
+    {
+      "path": "packages/modules/organization"
+    },
+    {
+      "path": "packages/modules/billing"
+    },
+    {
+      "path": "packages/modules/social"
+    },
+    {
+      "path": "packages/modules/marketing"
+    },
+    {
+      "path": "packages/modules/crm"
+    },
+    {
+      "path": "packages/modules/marketplace"
+    },
+    {
+      "path": "packages/modules/analytics"
+    },
+    {
+      "path": "packages/modules/intelligence"
+    },
+    {
+      "path": "packages/integrations/core"
+    },
+    {
+      "path": "packages/integrations/testkit"
+    },
+    {
+      "path": "packages/ui"
+    },
+    {
+      "path": "packages/charts"
+    },
+    {
+      "path": "packages/testing"
+    },
+    {
+      "path": "apps/web"
+    },
+    {
+      "path": "apps/api"
+    },
+    {
+      "path": "apps/worker"
+    },
+    {
+      "path": "apps/link"
+    }
+  ]
+}
