@@ -38,8 +38,20 @@ products on one shared platform:
 
 ## Architecture Decision Records
 
-See [`docs/adr/`](adr/README.md) — 16 accepted ADRs. ADRs are immutable once accepted; a
-reversal is a new ADR that supersedes the old one.
+See [`docs/adr/`](adr/README.md) — 16 accepted ADRs, and [TEMPLATE.md](adr/TEMPLATE.md) for
+writing one. ADRs are immutable once accepted; a reversal is a new ADR that supersedes the
+old one.
+
+## Operations and process
+
+| Document | Covers |
+| --- | --- |
+| [Runbooks](runbooks/README.md) | One per paging alert. An alert without a runbook is deleted or downgraded |
+| [Database prerequisites](runbooks/database-prerequisites.md) | PostgreSQL version, extensions and roles every environment must provide |
+| [Integration template](integrations/TEMPLATE.md) | Per-provider setup, capabilities, rate limits, error mapping, gotchas |
+| [Lint rationale](lint-rationale.md) | Why each non-obvious lint rule is configured the way it is |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | Setup, the rules CI enforces, review requirements |
+| [SECURITY.md](../SECURITY.md) | Vulnerability reporting, scope, safe harbour |
 
 ## Status
 
