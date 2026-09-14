@@ -250,6 +250,10 @@ importers:
       '@growth-os/types':
         specifier: workspace:*
         version: link:../types
+    devDependencies:
+      vitest:
+        specifier: 5.0.0
+        version: 5.0.0(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(jsdom@30.0.1)(vite@8.2.2(@types/node@22.20.0)(yaml@2.9.0))
 
   packages/platform/automation:
     dependencies:
