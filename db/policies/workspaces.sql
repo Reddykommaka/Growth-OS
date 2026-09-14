@@ -1,36 +1,43 @@
 -- workspaces — THE RESOURCE BOUNDARY
 --
--- WHO MAY READ:  a member of the owning organization, AND only the workspaces in that
---                actor's resolved accessible-workspace set.
--- WHO MAY WRITE: a member of the owning organization (application authorization decides
---                who may create or modify one).
+-- WHO MAY READ:  any member acting inside the owning organization.
+-- WHO MAY WRITE: the same, subject to application authorization.
 --
--- ASYMMETRIC, IN THE SAFE DIRECTION. USING is NARROWER than the write rule.
+-- ORGANIZATION-SCOPED — level 2 in 05-data-architecture.md §3, not level 3.
 --
--- Why USING is narrower: this is what stops a client_guest — someone outside the tenant
--- organization entirely, reviewing their own brand's content — from learning that the
--- agency's other clients exist. Enforcing it in the database rather than only in the
--- application means a missed authz check becomes a permissions bug, not a client list leak.
+-- Level 3 ("workspace-scoped") is defined there as a table that "additionally [has]
+-- workspace_id NOT NULL", where RLS adds membership of the actor's accessible-workspace
+-- set. This table has no workspace_id column; it IS the workspace. So the predicate is the
+-- plain tenant one, symmetric, and the set plays no part.
 --
--- Why WITH CHECK is broader: a workspace must be creatable before it can appear in anyone's
--- accessible set. Requiring set membership on INSERT would make the first workspace
--- impossible to create, and onboarding would deadlock.
+-- WHY NOT RESTRICT READS TO THE ACCESSIBLE SET.
 --
--- Why the asymmetry cannot leak: the BROADER rule governs writes, and it grants only what
--- the tenant may already do — write into its own organization. The dangerous shape is the
--- reverse (a USING broader than the write rule, as on marketplace listings), and a test
--- asserts this policy is not that one.
+-- It was tried, during Phase 1, with the intent of stopping a client_guest from learning
+-- that the agency's other clients exist. It is circular and cannot work: a team's reachable
+-- workspaces are read from workspaces.team_id, so the set is COMPUTED FROM THIS TABLE. A
+-- policy demanding the set makes the set underivable, and the resolver returns empty for
+-- every actor — including the organization's owner, who is then locked out of the tenant
+-- they created.
 --
--- Fails closed: with app.workspace_ids unset, app_current_workspace_ids() returns an empty
--- array, `id = ANY('{}')` is false, and the table returns zero rows.
+-- WHERE THE CONTAINMENT ACTUALLY LIVES.
 --
--- canonical-using:      ((organization_id = app_current_organization_id()) AND (id = ANY (app_current_workspace_ids())))
+--   1. The authorization engine denies any workspace outside the resolved set before a
+--      query is issued, with reason `workspace_not_accessible`.
+--   2. Every workspace-SCOPED table — one carrying workspace_id: content, campaigns,
+--      reports, from Phase 3 onward — is level 3 and IS restricted by the set in RLS. A
+--      guest cannot read another client's work even if the application check were bypassed.
+--
+-- RESIDUAL RISK, STATED PLAINLY: with the application check bypassed, a session could
+-- enumerate workspace NAMES within its own organization. It could not reach another
+-- tenant's, and it could not read any workspace's contents. That is the accepted level-2
+-- posture for this table.
+--
+-- canonical-using:      (organization_id = app_current_organization_id())
 -- canonical-with-check: (organization_id = app_current_organization_id())
 
 ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workspaces FORCE  ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON workspaces
-  USING      (organization_id = app_current_organization_id()
-              AND id = ANY (app_current_workspace_ids()))
+  USING      (organization_id = app_current_organization_id())
   WITH CHECK (organization_id = app_current_organization_id());

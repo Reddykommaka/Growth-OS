@@ -38,6 +38,33 @@ beforeAll(async () => {
        ($1, $2, 'a1', 'A One'), ($3, $2, 'a2', 'A Two'), ($4, $5, 'b1', 'B One')`,
     [WS_A1, ORG_A, WS_A2, WS_B1, ORG_B],
   );
+
+  // `workspaces` is organization-scoped (05 §3 level 2), so it does not exercise
+  // app.workspace_ids at all. A representative WORKSPACE-SCOPED table does, and no product
+  // table carries workspace_id until Phase 3 — so the unit of work's handling of the set
+  // would otherwise be untested here.
+  await admin.query(`
+    CREATE TABLE scoped_probe (
+      id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      organization_id uuid NOT NULL,
+      workspace_id    uuid NOT NULL,
+      label           text NOT NULL
+    );
+    CREATE INDEX scoped_probe_ws_idx ON scoped_probe (organization_id, workspace_id);
+    ALTER TABLE scoped_probe ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE scoped_probe FORCE  ROW LEVEL SECURITY;
+    CREATE POLICY tenant_isolation ON scoped_probe
+      USING      (organization_id = app_current_organization_id()
+                  AND workspace_id = ANY (app_current_workspace_ids()))
+      WITH CHECK (organization_id = app_current_organization_id()
+                  AND workspace_id = ANY (app_current_workspace_ids()));
+    GRANT SELECT, INSERT, UPDATE, DELETE ON scoped_probe TO growth_os_app;
+  `);
+  await admin.query(
+    `INSERT INTO scoped_probe (organization_id, workspace_id, label) VALUES
+       ($1, $2, 'a1-row'), ($1, $3, 'a2-row'), ($4, $5, 'b1-row')`,
+    [ORG_A, WS_A1, WS_A2, ORG_B, WS_B1],
+  );
 }, 120_000);
 
 afterAll(async () => {
@@ -65,20 +92,39 @@ describe('withTenant applies the context the actor resolved', () => {
     expect(rows).toEqual([]);
   });
 
-  it('sees exactly the workspaces in the resolved set, not every workspace it owns', async () => {
+  it('sees every workspace row in its organization — that table is level 2', async () => {
     const rows = await withTenant(
       db.pool,
       { organizationId: ORG_A, workspaceIds: [WS_A1] },
-      async (tx) => (await tx.query<{ slug: string }>('SELECT slug FROM workspaces')).rows,
+      async (tx) =>
+        (await tx.query<{ slug: string }>('SELECT slug FROM workspaces ORDER BY slug')).rows,
     );
-    expect(rows.map((r) => r.slug)).toEqual(['a1']);
+    expect(rows.map((r) => r.slug)).toEqual(['a1', 'a2']);
   });
 
-  it('sees nothing with an empty set — fails closed', async () => {
+  it('sees exactly the workspace-SCOPED rows in the resolved set', async () => {
+    const rows = await withTenant(
+      db.pool,
+      { organizationId: ORG_A, workspaceIds: [WS_A1] },
+      async (tx) => (await tx.query<{ label: string }>('SELECT label FROM scoped_probe')).rows,
+    );
+    expect(rows.map((r) => r.label)).toEqual(['a1-row']);
+  });
+
+  it('sees no workspace-scoped row with an empty set — fails closed', async () => {
     const rows = await withTenant(
       db.pool,
       { organizationId: ORG_A, workspaceIds: [] },
-      async (tx) => (await tx.query('SELECT slug FROM workspaces')).rows,
+      async (tx) => (await tx.query('SELECT label FROM scoped_probe')).rows,
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("cannot reach another organization's row even with its workspace id in the set", async () => {
+    const rows = await withTenant(
+      db.pool,
+      { organizationId: ORG_A, workspaceIds: [WS_B1] },
+      async (tx) => (await tx.query('SELECT label FROM scoped_probe')).rows,
     );
     expect(rows).toEqual([]);
   });

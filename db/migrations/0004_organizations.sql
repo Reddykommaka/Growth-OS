@@ -122,23 +122,32 @@ CREATE INDEX workspaces_team_id_idx ON workspaces (team_id) WHERE team_id IS NOT
 ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workspaces FORCE ROW LEVEL SECURITY;
 
--- DELIBERATELY ASYMMETRIC, and in the safe direction — the opposite of the marketplace
--- hole documented in 06 §4.
+-- ORGANIZATION-SCOPED (05-data-architecture.md §3 level 2), not accessible-set restricted.
 --
---   USING      is NARROWER than the write rule: a member may read only the workspaces in
---              their resolved accessible set. This is what stops a client_guest at one
---              agency client from seeing that the agency's other clients exist, at the
---              database level rather than only in the application.
---   WITH CHECK is the plain tenant predicate: a workspace is created before it can appear
---              in anyone's accessible set, so requiring set membership on INSERT would make
---              creating the first workspace impossible.
+-- Level 3 in that taxonomy is "additionally workspace_id NOT NULL; RLS adds membership of
+-- the workspace via the actor's accessible-workspace set". This table has no workspace_id
+-- column — it IS the workspace — so it is level 2, and the predicate is the plain tenant
+-- one.
 --
--- Narrowing USING relative to WITH CHECK cannot leak: the broader rule governs only what
--- this tenant may write into its OWN organization, which it may already do. The dangerous
--- direction is the reverse, and a test asserts this policy is not that.
+-- An earlier version of this migration added `AND id = ANY(app_current_workspace_ids())` to
+-- USING, reasoning that it would stop a client_guest learning the agency's other clients
+-- exist. That is circular and cannot work: the accessible set is computed BY READING THIS
+-- TABLE (a team's owned workspaces come from workspaces.team_id), so a policy requiring the
+-- set makes the set underivable. The resolver returned an empty set for every actor,
+-- including the organization's owner.
+--
+-- Where that containment actually lives:
+--   - The authorization engine denies any workspace outside the resolved set, with reason
+--     `workspace_not_accessible`, before a query is issued.
+--   - Every workspace-SCOPED table (one carrying workspace_id — content, campaigns,
+--     reports, from Phase 3 on) is level 3 and IS restricted by the set in RLS. A guest
+--     cannot read another client's work even if the application check were bypassed.
+--
+-- What is given up: with the application check bypassed, a session could enumerate
+-- workspace NAMES inside its own organization. Not another tenant's — the tenant boundary
+-- is unaffected. That residual is the documented level-2 posture for this table.
 CREATE POLICY tenant_isolation ON workspaces
-  USING      (organization_id = app_current_organization_id()
-              AND id = ANY (app_current_workspace_ids()))
+  USING      (organization_id = app_current_organization_id())
   WITH CHECK (organization_id = app_current_organization_id());
 
 -- ---------------------------------------------------------------------------------------

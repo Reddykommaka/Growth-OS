@@ -329,3 +329,48 @@ describe('check 3 — an insert the policy never saw is reported, not counted as
     expect(result.insertAccepted).toBe(true);
   });
 });
+
+/**
+ * The fails-closed check counts only rows that carry a tenant.
+ *
+ * Some tables hold deliberately global rows beside tenant ones — `roles` keeps the shared
+ * system roles with organization_id NULL. Those are readable without context by design.
+ * Exempting the whole TABLE would blind the check to a real leak on it, so the probe is
+ * scoped to non-NULL tenant values instead. This fixture proves both halves.
+ */
+describe('check 4 — a global row is not a tenant leak, but a tenant row still is', () => {
+  const MIXED = `
+    CREATE TABLE mixed_widgets (
+      id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      organization_id uuid NULL
+    );
+    ALTER TABLE mixed_widgets ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE mixed_widgets FORCE  ROW LEVEL SECURITY;
+    CREATE POLICY tenant_isolation ON mixed_widgets
+      USING      (organization_id IS NULL OR organization_id = app_current_organization_id())
+      WITH CHECK (organization_id = app_current_organization_id());
+    GRANT SELECT, INSERT, UPDATE, DELETE ON mixed_widgets TO ${APP_ROLE};
+  `;
+
+  beforeAll(async () => {
+    await admin.query(MIXED);
+    await admin.query('INSERT INTO mixed_widgets (organization_id) VALUES (NULL)');
+  });
+
+  it('does not flag a table whose only context-free rows are global', async () => {
+    const leaking = await checkFailsClosedWithoutContext(db.pool);
+    expect(leaking).not.toContain('mixed_widgets');
+  });
+
+  it('DOES flag the same table once a tenant row becomes visible without context', async () => {
+    // A policy loosened to expose tenant rows — the leak the check exists to catch.
+    await admin.query('DROP POLICY tenant_isolation ON mixed_widgets');
+    await admin.query(
+      'CREATE POLICY tenant_isolation ON mixed_widgets USING (true) WITH CHECK (true)',
+    );
+    await admin.query('INSERT INTO mixed_widgets (organization_id) VALUES ($1)', [ORG_B]);
+
+    const leaking = await checkFailsClosedWithoutContext(db.pool);
+    expect(leaking).toContain('mixed_widgets');
+  });
+});

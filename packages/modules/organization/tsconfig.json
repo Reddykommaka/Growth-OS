@@ -6,13 +6,19 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.test.tsx"],
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx", "dist", "**/__testing__/**"],
   "references": [
     {
       "path": "../../platform/types"
     },
     {
       "path": "../../platform/errors"
+    },
+    {
+      "path": "../../platform/authz"
+    },
+    {
+      "path": "../../platform/db"
     }
   ]
 }

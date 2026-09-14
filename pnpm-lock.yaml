@@ -208,12 +208,31 @@ importers:
 
   packages/modules/organization:
     dependencies:
+      '@growth-os/authz':
+        specifier: workspace:*
+        version: link:../../platform/authz
+      '@growth-os/db':
+        specifier: workspace:*
+        version: link:../../platform/db
       '@growth-os/errors':
         specifier: workspace:*
         version: link:../../platform/errors
       '@growth-os/types':
         specifier: workspace:*
         version: link:../../platform/types
+      pg:
+        specifier: 8.16.3
+        version: 8.16.3
+    devDependencies:
+      '@growth-os/testing':
+        specifier: workspace:*
+        version: link:../../testing
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
+      vitest:
+        specifier: 5.0.0
+        version: 5.0.0(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(jsdom@30.0.1)(vite@8.2.2(@types/node@22.20.0)(yaml@2.9.0))
 
   packages/modules/social:
     dependencies:

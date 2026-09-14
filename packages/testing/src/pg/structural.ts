@@ -295,7 +295,18 @@ export async function checkFailsClosedWithoutContext(appPool: Pool): Promise<str
     await client.query('BEGIN');
     // Deliberately set nothing.
     for (const table of tables) {
-      const result = await client.query(`SELECT 1 FROM ${table} LIMIT 1`);
+      const tenantColumn = tenantColumnFor(table);
+      // Only rows that CARRY a tenant count. A few tables hold deliberately global rows
+      // alongside tenant ones — `roles` and `role_permissions` keep the shared system roles
+      // with organization_id NULL — and those are readable without context by design: they
+      // describe the product, not any customer.
+      //
+      // Scoping the probe to non-NULL tenant values keeps this precise rather than adding a
+      // table-level exemption, which would stop the check seeing a real leak on the same
+      // table. For every table whose tenant column is NOT NULL, this is no weaker at all.
+      const result = await client.query(
+        `SELECT 1 FROM ${table} WHERE ${tenantColumn} IS NOT NULL LIMIT 1`,
+      );
       if ((result.rowCount ?? 0) > 0) leaking.push(table);
     }
   } finally {

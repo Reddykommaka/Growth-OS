@@ -5,7 +5,7 @@
 // traffic when the database is BEHIND this version (12-devops-architecture.md §5).
 
 /** The newest migration this build knows about. */
-export const EXPECTED_SCHEMA_VERSION = '0005_authorization.sql';
+export const EXPECTED_SCHEMA_VERSION = '0006_system_roles.sql';
 
 /** Every migration this build knows about, in application order. */
 export const KNOWN_MIGRATIONS: readonly string[] = [
@@ -14,4 +14,5 @@ export const KNOWN_MIGRATIONS: readonly string[] = [
   '0003_identity.sql',
   '0004_organizations.sql',
   '0005_authorization.sql',
+  '0006_system_roles.sql',
 ];

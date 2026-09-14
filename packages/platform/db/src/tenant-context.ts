@@ -121,6 +121,54 @@ export async function withTenant<T>(
 }
 
 /**
+ * Opens a transaction scoped to an organization but with NO workspace set.
+ *
+ * Exists for exactly one caller: the actor-context resolver, which has a genuine
+ * chicken-and-egg problem. The accessible-workspace set is computed by reading
+ * organization_members, teams, workspaces and role_assignments — all of which are
+ * tenant-scoped and fail closed without `app.organization_id`. Resolution cannot run inside
+ * `withTenant`, because the value `withTenant` needs is the one resolution produces.
+ *
+ * WHY THIS IS NOT A BYPASS. Setting `app.organization_id` is not an authorization grant. It
+ * narrows what the connection can see to ONE organization; it does not establish that the
+ * actor belongs to it. The membership row does that, and the resolver's first query looks
+ * for it and returns nothing when it is absent. An actor passing an organization id they
+ * have no membership in gets a context scoped to that organization and immediately finds no
+ * membership — so nothing is read and no context is produced.
+ *
+ * The workspace set is deliberately left EMPTY here. Workspace-scoped tables (those
+ * carrying workspace_id) therefore return nothing inside this transaction, which is correct:
+ * resolution reads tenancy topology, never tenant content.
+ *
+ * Kept in this module rather than in the resolver so that every write of an `app.*` setting
+ * remains in one reviewable file, which the architecture test enforces.
+ */
+export async function withOrganizationScope<T>(
+  pool: Pool,
+  organizationId: string,
+  body: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  assertValidIds({ organizationId, workspaceIds: [] });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT set_config($1, $2, true)', ['app.organization_id', organizationId]);
+    // Explicitly empty, not unset: an actor mid-resolution has no resolved set yet, and
+    // leaving it unset would rely on the helper's COALESCE rather than saying so.
+    await client.query('SELECT set_config($1, $2, true)', ['app.workspace_ids', '{}']);
+    const value = await body(client);
+    await client.query('COMMIT');
+    return value;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Opens a transaction with NO tenant context, for the few operations that legitimately
  * precede one — looking a session up by token hash, redeeming an invitation, resolving
  * which organizations a user belongs to.

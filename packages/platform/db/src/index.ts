@@ -8,6 +8,7 @@ export { EXPECTED_SCHEMA_VERSION, KNOWN_MIGRATIONS } from './schema-version.js';
 export {
   type TenantContext,
   type TenantTransaction,
+  withOrganizationScope,
   withoutTenantContext,
   withTenant,
   workspaceIdsLiteral,

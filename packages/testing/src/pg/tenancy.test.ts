@@ -165,9 +165,11 @@ describe('roles — the asymmetric policy that the generic probe cannot cover', 
   }
 
   beforeAll(async () => {
+    // The system roles are seeded by migration 0006; only the per-organization custom roles
+    // belong to this fixture. Inserting another 'owner' here would collide with the real
+    // seed — and a test that works around the production seed is testing something else.
     await admin.query(
       `INSERT INTO roles (id, organization_id, slug, name, scope, is_system) VALUES
-         (gen_random_uuid(), NULL, 'owner', 'Owner', 'organization', true),
          (gen_random_uuid(), $1, 'custom-a', 'Custom A', 'workspace', false),
          (gen_random_uuid(), $2, 'custom-b', 'Custom B', 'workspace', false)`,
       [ORG_A, ORG_B],
@@ -216,16 +218,19 @@ describe('roles — the asymmetric policy that the generic probe cannot cover', 
 });
 
 /**
- * `workspaces` USING is deliberately NARROWER than its write rule — the safe direction.
- * Reads are restricted to the actor's resolved accessible set, which is what stops a
- * client_guest learning that the agency's other clients exist. Writes use the plain tenant
- * predicate, because a workspace must be creatable before it can be in anyone's set.
+ * `workspaces` is ORGANIZATION-scoped (05 §3 level 2), not restricted to the accessible set.
+ *
+ * An earlier version of this migration restricted reads to app.workspace_ids, to stop a
+ * client_guest learning the agency's other clients exist. It is circular: the set is
+ * computed by reading this table, so a policy demanding the set makes the set underivable —
+ * every actor resolved to an empty set, the organization's owner included. See
+ * db/policies/workspaces.sql for where that containment actually lives.
+ *
+ * These tests pin the level-2 behaviour so the tightening is not reintroduced by someone
+ * reading only the client_guest requirement.
  */
-describe('workspaces — reads restricted to the accessible-workspace set', () => {
-  async function asOrgAWithWorkspaces<T>(
-    workspaceIds: string[],
-    fn: (c: Client) => Promise<T>,
-  ): Promise<T> {
+describe('workspaces — organization-scoped, independent of the workspace set', () => {
+  async function asOrgA<T>(workspaceIds: string[], fn: (c: Client) => Promise<T>): Promise<T> {
     const client = await db.pool.connect();
     try {
       await client.query('BEGIN');
@@ -241,34 +246,29 @@ describe('workspaces — reads restricted to the accessible-workspace set', () =
     }
   }
 
-  it('returns a workspace that is in the set', async () => {
-    const r = await asOrgAWithWorkspaces([WS_A], (c) =>
+  it("returns the organization's workspaces regardless of the set", async () => {
+    const r = await asOrgA([], (c) => c.query('SELECT slug FROM workspaces WHERE id = $1', [WS_A]));
+    expect(r.rowCount).toBe(1);
+  });
+
+  it('is readable with the set populated too', async () => {
+    const r = await asOrgA([WS_A], (c) =>
       c.query('SELECT slug FROM workspaces WHERE id = $1', [WS_A]),
     );
     expect(r.rowCount).toBe(1);
   });
 
-  it('hides a workspace in the same organization that is NOT in the set', async () => {
-    const other = '01890a5d-ac96-774b-bcce-b302099a9299';
-    await admin.query(
-      `INSERT INTO workspaces (id, organization_id, slug, name) VALUES ($1, $2, 'other', 'Other')`,
-      [other, ORG_A],
-    );
-    const r = await asOrgAWithWorkspaces([WS_A], (c) =>
-      c.query('SELECT slug FROM workspaces WHERE id = $1', [other]),
+  it("still hides another organization's workspace — the tenant boundary is unaffected", async () => {
+    const r = await asOrgA([WS_A, WS_B], (c) =>
+      c.query('SELECT slug FROM workspaces WHERE id = $1', [WS_B]),
     );
     expect(r.rowCount).toBe(0);
   });
 
-  it('returns nothing at all when the set is empty — fails closed', async () => {
-    const r = await asOrgAWithWorkspaces([], (c) => c.query('SELECT slug FROM workspaces'));
-    expect(r.rowCount).toBe(0);
-  });
-
-  it('still permits creating a workspace that is not yet in any set', async () => {
+  it('permits creating a workspace in its own organization', async () => {
     const fresh = '01890a5d-ac96-774b-bcce-b302099a9301';
     await expect(
-      asOrgAWithWorkspaces([], (c) =>
+      asOrgA([], (c) =>
         c.query(
           `INSERT INTO workspaces (id, organization_id, slug, name)
              VALUES ($1, $2, 'fresh', 'Fresh')`,
@@ -280,7 +280,7 @@ describe('workspaces — reads restricted to the accessible-workspace set', () =
 
   it('REFUSES to create a workspace in another organization', async () => {
     await expect(
-      asOrgAWithWorkspaces([], (c) =>
+      asOrgA([], (c) =>
         c.query(
           `INSERT INTO workspaces (id, organization_id, slug, name)
              VALUES (gen_random_uuid(), $1, 'smuggled', 'Smuggled')`,
