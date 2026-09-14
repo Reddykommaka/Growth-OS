@@ -33,6 +33,7 @@ products on one shared platform:
 | 17 | [Marketplace architecture](architecture/17-marketplace-architecture.md) | Participants, catalogue, orders, money, trust, ecosystem links |
 | 18 | [Phase 0 implementation plan](architecture/18-phase-0-plan.md) | Exact work items and exit criteria |
 | 19 | [**Approved architecture summary**](architecture/19-approved-summary.md) | Consolidated view: domain map, dependency graph, sequence, remaining decisions, new risks |
+| 20 | [Phase 0 implementation gate](architecture/20-phase-0-gate.md) | Evidence for each Phase 0 exit criterion, and what is explicitly not yet proven |
 
 **Start here:** [19 — Approved architecture summary](architecture/19-approved-summary.md).
 
