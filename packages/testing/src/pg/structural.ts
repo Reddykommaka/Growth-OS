@@ -12,6 +12,22 @@ import type { Client, Pool } from 'pg';
 
 export const TENANT_COLUMN = 'organization_id';
 
+/**
+ * The tenant root. Its tenant column is `id`, not `organization_id`, so a sweep that
+ * discovers tables by column name cannot see it — leaving the one table that DEFINES a
+ * tenant as the only one exempt from the check that every tenant table is isolated.
+ *
+ * Naming it here rather than adding an `organization_id` column to `organizations` keeps
+ * the schema honest (a self-referencing tenant column invites a row whose id and
+ * organization_id disagree) at the cost of one special case, stated once.
+ */
+export const TENANT_ROOT_TABLE = 'organizations';
+
+/** The column carrying the tenant for a given table. */
+export function tenantColumnFor(table: string): string {
+  return table === TENANT_ROOT_TABLE ? 'id' : TENANT_COLUMN;
+}
+
 export interface RlsFinding {
   readonly table: string;
   readonly problem:
@@ -32,12 +48,12 @@ export async function tenantScopedTables(client: Client | Pool): Promise<string[
       WHERE n.nspname = 'public'
         AND c.relkind IN ('r', 'p')
         AND NOT c.relispartition
-        AND a.attname = $1
+        AND (a.attname = $1 OR c.relname = $2)
         AND NOT a.attisdropped
       ORDER BY c.relname`,
-    [TENANT_COLUMN],
+    [TENANT_COLUMN, TENANT_ROOT_TABLE],
   );
-  return result.rows.map((r) => r.table_name);
+  return [...new Set(result.rows.map((r) => r.table_name))];
 }
 
 /**
@@ -162,7 +178,22 @@ export interface IsolationProbeResult {
   readonly updateLeaked: number;
   readonly deleteLeaked: number;
   readonly insertAccepted: boolean;
+  /**
+   * Set when the INSERT probe was rejected by something OTHER than the RLS policy — a NOT
+   * NULL, foreign key or CHECK violation from the deliberately minimal row the probe
+   * builds. The row never reached the policy, so this table's write rule is UNPROVEN, not
+   * proven safe.
+   *
+   * Without this, a loosened policy would still look green: the write would be permitted by
+   * RLS and then rejected by a column constraint, and a probe that only asks "did the
+   * insert fail?" would call that a pass. Pass `extraColumns` to satisfy the constraints
+   * and turn the probe back into a real test.
+   */
+  readonly insertUnreachable?: string;
 }
+
+/** PostgreSQL's insufficient_privilege — what an RLS WITH CHECK rejection raises. */
+const RLS_VIOLATION = '42501';
 
 /**
  * Structural check 3 — cross-tenant probes.
@@ -194,14 +225,17 @@ export async function probeCrossTenantAccess(
     await client.query('BEGIN');
     await client.query('SELECT set_config($1, $2, true)', ['app.organization_id', organizationA]);
 
-    const read = await client.query(`SELECT 1 FROM ${table} WHERE ${TENANT_COLUMN} = $1`, [
+    // `organizations` carries its tenant in `id`; every other table in `organization_id`.
+    const tenantColumn = tenantColumnFor(table);
+
+    const read = await client.query(`SELECT 1 FROM ${table} WHERE ${tenantColumn} = $1`, [
       organizationB,
     ]);
     const updated = await client.query(
-      `UPDATE ${table} SET ${TENANT_COLUMN} = ${TENANT_COLUMN} WHERE ${TENANT_COLUMN} = $1`,
+      `UPDATE ${table} SET ${tenantColumn} = ${tenantColumn} WHERE ${tenantColumn} = $1`,
       [organizationB],
     );
-    const deleted = await client.query(`DELETE FROM ${table} WHERE ${TENANT_COLUMN} = $1`, [
+    const deleted = await client.query(`DELETE FROM ${table} WHERE ${tenantColumn} = $1`, [
       organizationB,
     ]);
 
@@ -210,16 +244,26 @@ export async function probeCrossTenantAccess(
     // accepting a cross-tenant INSERT. A select-only probe reports such a table as safe.
     let insertAccepted = false;
     const extraNames = Object.keys(extraColumns);
-    const columns = ['id', TENANT_COLUMN, ...extraNames].join(', ');
-    const placeholders = ['gen_random_uuid()', '$1', ...extraNames.map((_, i) => `$${i + 2}`)];
+    // When the tenant column IS the primary key, naming both would list `id` twice.
+    const idColumns = tenantColumn === 'id' ? ['id'] : ['id', tenantColumn];
+    const idValues = tenantColumn === 'id' ? ['$1'] : ['gen_random_uuid()', '$1'];
+    const columns = [...idColumns, ...extraNames].join(', ');
+    const placeholders = [...idValues, ...extraNames.map((_, i) => `$${i + 2}`)];
+    let insertUnreachable: string | undefined;
     try {
       await client.query(`INSERT INTO ${table} (${columns}) VALUES (${placeholders.join(', ')})`, [
         organizationB,
         ...extraNames.map((n) => extraColumns[n]),
       ]);
       insertAccepted = true;
-    } catch {
+    } catch (error) {
       insertAccepted = false;
+      const code = (error as { code?: string }).code;
+      // Anything other than an RLS rejection means the probe row died before the policy
+      // was consulted. Reporting that as a pass is how a real hole stays green.
+      if (code !== RLS_VIOLATION) {
+        insertUnreachable = `${code ?? 'unknown'}: ${(error as Error).message}`;
+      }
     }
 
     return {
@@ -228,6 +272,7 @@ export async function probeCrossTenantAccess(
       updateLeaked: updated.rowCount ?? 0,
       deleteLeaked: deleted.rowCount ?? 0,
       insertAccepted,
+      ...(insertUnreachable === undefined ? {} : { insertUnreachable }),
     };
   } finally {
     await client.query('ROLLBACK').catch(() => undefined);

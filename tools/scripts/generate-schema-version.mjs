@@ -38,7 +38,9 @@ const contents = `// GENERATED FILE — do not edit by hand.
 export const EXPECTED_SCHEMA_VERSION = '${latest}';
 
 /** Every migration this build knows about, in application order. */
-export const KNOWN_MIGRATIONS: readonly string[] = ${JSON.stringify(migrations, null, 2)};
+export const KNOWN_MIGRATIONS: readonly string[] = [
+${migrations.map((m) => `  '${m}',`).join('\n')}
+];
 `;
 
 if (process.argv.includes('--check')) {

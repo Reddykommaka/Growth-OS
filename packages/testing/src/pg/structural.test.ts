@@ -282,3 +282,50 @@ describe('check 4 — missing context fails closed', () => {
     expect(leaking).toContain('unsecured_widgets');
   });
 });
+
+/**
+ * The probe's insert leg is only meaningful if the probe row reaches the policy.
+ *
+ * A table whose minimal row (id + tenant column) violates a NOT NULL constraint is rejected
+ * before RLS is consulted. A probe that only asks "did the insert fail?" calls that a pass —
+ * so a policy that genuinely permits a cross-tenant write stays green behind an unrelated
+ * constraint. This fixture is that exact situation, deliberately built.
+ */
+describe('check 3 — an insert the policy never saw is reported, not counted as safe', () => {
+  const PERMISSIVE_WITH_NOT_NULL = `
+    CREATE TABLE unreachable_widgets (
+      id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      organization_id uuid NOT NULL,
+      -- The probe never supplies this, so the row dies here rather than at the policy.
+      required_label  text NOT NULL
+    );
+    ALTER TABLE unreachable_widgets ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE unreachable_widgets FORCE  ROW LEVEL SECURITY;
+    -- Deliberately wide open for writes: if the probe reached this policy it would be
+    -- ACCEPTED, and the table would be leaking.
+    CREATE POLICY tenant_isolation ON unreachable_widgets
+      USING      (organization_id = app_current_organization_id())
+      WITH CHECK (true);
+    GRANT SELECT, INSERT, UPDATE, DELETE ON unreachable_widgets TO ${APP_ROLE};
+  `;
+
+  beforeAll(async () => {
+    await admin.query(PERMISSIVE_WITH_NOT_NULL);
+  });
+
+  it('flags the insert as unreachable rather than refused', async () => {
+    const result = await probeCrossTenantAccess(db.pool, 'unreachable_widgets', ORG_A, ORG_B);
+    expect(result.insertAccepted).toBe(false);
+    // 23502 = not_null_violation. The policy was never consulted.
+    expect(result.insertUnreachable).toMatch(/23502/);
+  });
+
+  it('and reports a real leak once the constraint is satisfied', async () => {
+    const result = await probeCrossTenantAccess(db.pool, 'unreachable_widgets', ORG_A, ORG_B, {
+      required_label: 'probe',
+    });
+    expect(result.insertUnreachable).toBeUndefined();
+    // With the row now reaching the wide-open WITH CHECK, the hole is visible.
+    expect(result.insertAccepted).toBe(true);
+  });
+});

@@ -72,15 +72,35 @@ const RULES = [
   },
   {
     id: 'concurrent-index',
-    test(sql, { isInitial }) {
-      if (isInitial) return [];
-      return [...sql.matchAll(/\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?!CONCURRENTLY)(\w+)/gi)].map(
-        (m) => m[1],
+    // The rule exists because "a blocking index build on a LARGE table is an outage". A
+    // table created in this same migration has zero rows, so there is nothing to block on
+    // — and CONCURRENTLY is in fact illegal there, because the runner applies each file
+    // inside BEGIN/COMMIT and PostgreSQL refuses CREATE INDEX CONCURRENTLY inside a
+    // transaction block. Exempting by that condition rather than by the filename `0001`
+    // states the actual reason, and is STRICTER than the old check: a non-concurrent index
+    // on a pre-existing table is now caught in every migration, including the first.
+    test(sql) {
+      const createdHere = new Set(
+        [...sql.matchAll(/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/gi)].map((m) =>
+          m[1].toLowerCase(),
+        ),
       );
+      const found = [];
+      for (const m of sql.matchAll(
+        /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?!CONCURRENTLY\b)(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(?:ONLY\s+)?(\w+)/gi,
+      )) {
+        const [, index, table] = m;
+        if (!createdHere.has(table.toLowerCase())) found.push(`${index} on ${table}`);
+      }
+      return found;
     },
     message:
-      'Build indexes CONCURRENTLY, in their own migration outside a transaction. A blocking ' +
-      'index build on a large table is an outage (05-data-architecture.md §6 rule 7).',
+      'Build indexes on an EXISTING table CONCURRENTLY, in their own migration outside a ' +
+      'transaction. A blocking index build on a large table is an outage ' +
+      '(05-data-architecture.md §6 rule 7). An index on a table created in the same ' +
+      'migration is exempt: it has no rows, and CONCURRENTLY cannot run inside the ' +
+      "transaction the migration runner opens. Note that such a migration needs the runner's " +
+      'no-transaction mode, which does not exist yet — add it when the first one lands.',
   },
   {
     id: 'no-blocking-alter',
@@ -210,9 +230,8 @@ export function lintMigrations(dir) {
 
   for (const file of files) {
     const sql = stripNoise(file.sql);
-    const isInitial = /^0001[_-]/.test(file.name);
     for (const rule of RULES) {
-      for (const hit of rule.test(sql, { isInitial, raw: file.sql })) {
+      for (const hit of rule.test(sql, { raw: file.sql })) {
         findings.push({ file: file.name, rule: rule.id, detail: hit, message: rule.message });
       }
     }

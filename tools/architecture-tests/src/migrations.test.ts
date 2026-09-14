@@ -82,3 +82,31 @@ describe('migration lint stays silent on correct SQL', () => {
     expect(result.code, result.out).toBe(0);
   });
 });
+
+/**
+ * The concurrent-index rule was generalised during Phase 1 from "exempt file 0001" to
+ * "exempt an index on a table created in this same migration".
+ *
+ * The reason the rule gives for itself is that a blocking build on a *large* table is an
+ * outage. A table created in the same file has no rows — and CONCURRENTLY is in fact
+ * illegal there, because the runner applies each migration inside BEGIN/COMMIT. Pinning the
+ * exemption to a filename made every schema-creating migration after the first unwritable.
+ *
+ * These two cases are what stop that generalisation from becoming a hole.
+ */
+describe('concurrent-index exemption follows the table, not the filename', () => {
+  const dir = 'tools/architecture-tests/fixtures/migrations-concurrency';
+
+  it('allows a non-concurrent index on a table created in the same migration', () => {
+    const out = lint(`${dir}/same-file`);
+    expect(out.out).not.toContain('[concurrent-index]');
+    expect(out.code).toBe(0);
+  });
+
+  it('still rejects a non-concurrent index on a pre-existing table — even in 0001', () => {
+    const out = lint(`${dir}/pre-existing`);
+    expect(out.out).toContain('[concurrent-index]');
+    expect(out.out).toContain('on established_table');
+    expect(out.code).toBe(1);
+  });
+});
