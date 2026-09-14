@@ -34,6 +34,7 @@ products on one shared platform:
 | 18 | [Phase 0 implementation plan](architecture/18-phase-0-plan.md) | Exact work items and exit criteria |
 | 19 | [**Approved architecture summary**](architecture/19-approved-summary.md) | Consolidated view: domain map, dependency graph, sequence, remaining decisions, new risks |
 | 20 | [Phase 0 implementation gate](architecture/20-phase-0-gate.md) | Evidence for each Phase 0 exit criterion, and what is explicitly not yet proven |
+| 21 | [Phase 1 status](architecture/21-phase-1-status.md) | Tenancy & access: what is built, what is proven, what remains |
 
 **Start here:** [19 — Approved architecture summary](architecture/19-approved-summary.md).
 
