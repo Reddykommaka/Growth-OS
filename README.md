@@ -8,13 +8,27 @@ clients — Organization → Team → Workspace — with direct businesses suppo
 
 ## Status
 
-**Architecture approved (2026-09-10). Awaiting approval to begin structural implementation.
-No application code exists yet.**
+**Architecture approved (2026-09-10). Phase 0 (foundation) implemented and green.
+No product features exist yet — by design.**
 
 The workspace was inspected and found to be a clean greenfield repository. Rather than
-generating application files, this branch establishes the production architecture first —
+generating application files, this branch established the production architecture first —
 tenancy, module boundaries, the data model, the attribution spine and AI governance are the
 decisions that cannot be cheaply reversed once real data exists.
+
+[Phase 0](docs/architecture/18-phase-0-plan.md) then built the machine that enforces that
+architecture: the package graph, four independent boundary mechanisms, real-PostgreSQL
+integration harness, migration lint, design-system foundation, CI and a staging pipeline.
+Phase 1 (tenancy and access) is the next increment and has not begun.
+
+```
+pnpm install && pnpm typecheck && pnpm lint && pnpm test   # no services required
+pnpm test:integration                                      # needs PostgreSQL 16 binaries + pgvector
+```
+
+Integration tests bootstrap a throwaway cluster from the PostgreSQL binaries — no Docker
+daemon and no running server. See
+[the database prerequisites runbook](docs/runbooks/database-prerequisites.md).
 
 ## Start here
 

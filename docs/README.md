@@ -55,9 +55,15 @@ old one.
 
 ## Status
 
-**Architecture approved (2026-09-10). Awaiting approval to begin structural implementation.**
+**Architecture approved (2026-09-10). Phase 0 (foundation) implemented and green.**
 
-No application code exists yet. Nothing in this directory has been implemented.
+[Phase 0](architecture/18-phase-0-plan.md) is built: the package graph, boundary
+enforcement, the real-PostgreSQL test harness, migration lint, the design-system
+foundation, CI and the staging pipeline. It deliberately contains no entities, no
+authentication, no provider adapters and no product screens.
+
+Everything else in this directory is approved architecture that has **not** yet been
+implemented. Phase 1 (tenancy and access) is the next increment.
 
 ### Approved strategic decisions applied
 
