@@ -3,8 +3,15 @@
 ## 1. Design stance
 
 We **own the identity tables**. Authentication is assembled from focused, auditable
-libraries (`arctic` for OAuth flows, `oslo` for crypto primitives, `@node-rs/argon2` for
-password hashing) rather than delegated to a framework that owns the user record.
+libraries — `openid-client` for OAuth/OIDC flows, `node:crypto` for primitives, and
+`@node-rs/argon2` for password hashing — rather than delegated to a framework that owns the
+user record.
+
+> The first two were originally `arctic` and `oslo`. Both were marked "no longer supported"
+> by their author, and an unmaintained dependency on the authentication path is a risk with
+> no upstream fix. See [ADR-0017](../adr/0017-authentication-libraries.md), which records the
+> verification, the replacement and why TOTP is implemented directly against the RFC while
+> OAuth is not.
 
 The reason is specific rather than ideological: in this product, a user's relationship to
 an organization is a first-class domain concept (multi-org membership, workspace-scoped

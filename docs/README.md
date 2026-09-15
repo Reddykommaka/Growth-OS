@@ -40,9 +40,10 @@ products on one shared platform:
 
 ## Architecture Decision Records
 
-See [`docs/adr/`](adr/README.md) — 16 accepted ADRs, and [TEMPLATE.md](adr/TEMPLATE.md) for
-writing one. ADRs are immutable once accepted; a reversal is a new ADR that supersedes the
-old one.
+See [`docs/adr/`](adr/README.md) — 17 accepted ADRs, and [TEMPLATE.md](adr/TEMPLATE.md) for
+writing one. ADRs are immutable once accepted; a reversal or amendment is a new ADR, and the original
+gains a pointer to it rather than being edited. [ADR-0017](adr/0017-authentication-libraries.md)
+amends [ADR-0006](adr/0006-own-identity.md) that way.
 
 ## Operations and process
 
@@ -57,9 +58,12 @@ old one.
 
 ## Status
 
-**Architecture approved (2026-09-10). Awaiting approval to begin structural implementation.**
+**Phase 0 complete** — the implementation gate passed with evidence recorded in
+[20](architecture/20-phase-0-gate.md).
 
-No application code exists yet. Nothing in this directory has been implemented.
+**Phase 1 (Tenancy & Access) in progress** — see
+[21](architecture/21-phase-1-status.md) for what is built, what is proven, and what remains.
+That document is the accurate picture; this section only points at it.
 
 ### Approved strategic decisions applied
 

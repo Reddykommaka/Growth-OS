@@ -41,7 +41,17 @@ export abstract class AppError extends Error {
   readonly requestId: string | undefined;
   readonly meta: Readonly<Record<string, unknown>>;
 
-  protected constructor(message: string, context: ErrorContext = {}) {
+  /**
+   * Public, not protected.
+   *
+   * `AppError` is abstract, so `new AppError(...)` is already impossible — `protected`
+   * restricted nothing that `abstract` did not, while making every subclass that did not
+   * declare its own constructor UNCONSTRUCTIBLE. Seven of the thirteen were: ConflictError,
+   * PreconditionFailedError, QuotaExceededError, BudgetExceededError,
+   * EntitlementRequiredError, ProviderUnavailableError and CapabilityUnsupportedError. They
+   * typechecked, shipped, and could not be thrown. A test now constructs every one.
+   */
+  constructor(message: string, context: ErrorContext = {}) {
     super(message, context.cause === undefined ? undefined : { cause: context.cause });
     this.name = new.target.name;
     this.requestId = context.requestId;

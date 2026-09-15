@@ -8,6 +8,10 @@
       "types": "./dist/contracts/index.d.ts",
       "import": "./dist/contracts/index.js"
     },
+    "./application": {
+      "types": "./dist/application/index.d.ts",
+      "import": "./dist/application/index.js"
+    },
     "./infrastructure": {
       "types": "./dist/infrastructure/index.d.ts",
       "import": "./dist/infrastructure/index.js"
@@ -15,10 +19,23 @@
   },
   "scripts": {
     "build": "tsc --build",
-    "clean": "tsc --build --clean && rm -rf dist"
+    "clean": "tsc --build --clean && rm -rf dist",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@growth-os/errors": "workspace:*",
     "@growth-os/types": "workspace:*",
-    "@growth-os/errors": "workspace:*"
+    "openid-client": "6.8.8",
+    "@growth-os/authn": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "5.0.0",
+    "@types/pg": "8.23.1",
+    "@growth-os/testing": "workspace:*",
+    "pg": "8.16.3",
+    "@growth-os/module-organization": "workspace:*",
+    "@growth-os/authz": "workspace:*",
+    "@growth-os/db": "workspace:*"
   }
 }

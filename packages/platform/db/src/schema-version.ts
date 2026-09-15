@@ -5,7 +5,7 @@
 // traffic when the database is BEHIND this version (12-devops-architecture.md §5).
 
 /** The newest migration this build knows about. */
-export const EXPECTED_SCHEMA_VERSION = '0007_workspace_scope.sql';
+export const EXPECTED_SCHEMA_VERSION = '0008_totp_replay_guard.sql';
 
 /** Every migration this build knows about, in application order. */
 export const KNOWN_MIGRATIONS: readonly string[] = [
@@ -16,4 +16,5 @@ export const KNOWN_MIGRATIONS: readonly string[] = [
   '0005_authorization.sql',
   '0006_system_roles.sql',
   '0007_workspace_scope.sql',
+  '0008_totp_replay_guard.sql',
 ];

@@ -29,6 +29,7 @@ the context, the choice, the alternatives, and the consequences we accepted.
 | [0014](0014-intelligence-layer.md) | A cross-product intelligence layer | Accepted |
 | [0015](0015-meta-provider-family.md) | Meta as one auth core with three adapters | Accepted |
 | [0016](0016-ai-governance.md) | AI governance: provenance, proposals, budgets, evaluation | Accepted |
+| [0017](0017-authentication-libraries.md) | Replace the unmaintained authentication libraries | Accepted |
 
 ADR-0003 was revised before acceptance to add the team layer, following the approved
 agency-first customer decision. ADRs 0013–0016 record decisions introduced by that same

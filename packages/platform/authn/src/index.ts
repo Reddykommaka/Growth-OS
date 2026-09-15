@@ -18,6 +18,12 @@ export {
   verifyPassword,
 } from './password.js';
 export {
+  createSecretCipher,
+  generateSecretKey,
+  type SecretCipher,
+  secretEquals,
+} from './secret-box.js';
+export {
   type CookieOptions,
   impersonationExpiry,
   MAX_IMPERSONATION_MS,

@@ -9,8 +9,14 @@ between client workspaces, and support impersonation.
 
 ## Decision
 Own `users`, `sessions`, `organization_members`, `roles` and `role_assignments`. Assemble
-authentication from `arctic` (OAuth flows), `oslo` (crypto primitives) and
-`@node-rs/argon2` (password hashing). Enterprise SSO and SCIM go behind an
+authentication from focused libraries rather than adopting a framework.
+
+> **Amended by [ADR-0017](0017-authentication-libraries.md) (2026-09-15).** The libraries
+> originally named here were `arctic` (OAuth flows), `oslo` (crypto primitives) and
+> `@node-rs/argon2` (password hashing). `oslo` and `arctic` have since been marked "no longer
+> supported" by their author. ADR-0017 replaces them with `node:crypto` and `openid-client`.
+> `@node-rs/argon2` is unchanged. The decision recorded here — own the tables, assemble from
+> focused libraries — is unchanged. Enterprise SSO and SCIM go behind an
 `EnterpriseIdentityPort` in a later phase.
 
 ## Alternatives considered

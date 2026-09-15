@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BudgetExceededError,
+  CapabilityUnsupportedError,
+  ConflictError,
+  EntitlementRequiredError,
   ForbiddenError,
   InternalError,
   NotFoundError,
+  PreconditionFailedError,
   ProviderUnavailableError,
+  QuotaExceededError,
   RateLimitedError,
   toProblemDetails,
+  UnauthenticatedError,
   ValidationError,
 } from './index.js';
 
@@ -90,5 +97,54 @@ describe('retryability is declared, not guessed', () => {
     [new NotFoundError(), false],
   ])('%s', (error, retryable) => {
     expect(error.retryable).toBe(retryable);
+  });
+});
+
+/**
+ * Every error in the taxonomy must be constructible and serialisable.
+ *
+ * Seven of the thirteen were not: they inherited a `protected` constructor from the abstract
+ * base and declared none of their own, so they typechecked and shipped and could never be
+ * thrown. Enumerating the taxonomy — rather than testing the ones someone remembered — is
+ * what turns that from a latent defect into a build failure.
+ */
+describe('the whole error taxonomy is usable', () => {
+  const taxonomy = [
+    ValidationError,
+    UnauthenticatedError,
+    ForbiddenError,
+    NotFoundError,
+    ConflictError,
+    PreconditionFailedError,
+    RateLimitedError,
+    QuotaExceededError,
+    BudgetExceededError,
+    EntitlementRequiredError,
+    ProviderUnavailableError,
+    CapabilityUnsupportedError,
+    InternalError,
+  ] as const;
+
+  it.each(taxonomy.map((E) => [E.name, E] as const))(
+    '%s can be constructed and thrown',
+    (_n, E) => {
+      const error = new E('something went wrong');
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe('something went wrong');
+      expect(typeof error.code).toBe('string');
+      expect(error.status).toBeGreaterThanOrEqual(400);
+    },
+  );
+
+  it.each(taxonomy.map((E) => [E.name, E] as const))('%s serialises to problem+json', (_n, E) => {
+    const problem = toProblemDetails(new E('boom'), 'req-1');
+    expect(problem.status).toBe(new E('boom').status);
+    expect(problem.code).toBe(new E('boom').code);
+    expect(problem.requestId).toBe('req-1');
+  });
+
+  it('assigns a distinct code to each member', () => {
+    const codes = taxonomy.map((E) => new E('x').code);
+    expect(new Set(codes).size).toBe(codes.length);
   });
 });

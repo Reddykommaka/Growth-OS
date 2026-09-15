@@ -1,7 +1,11 @@
-// @growth-os/module-identity — infrastructure layer
-//
-// Layer rule (03-repository-structure.md §2): domain <- application <- infrastructure.
-// Only 'contracts' and 'infrastructure' are exported from package.json.
-// Domain implementation lands in a later phase; see docs/architecture/14-roadmap.md.
-
-export {};
+/**
+ * @growth-os/module-identity/infrastructure
+ *
+ * PostgreSQL-backed implementations of the identity ports, plus the composition helper that
+ * wires them into the application services.
+ */
+export { createMfaRepository } from './mfa-repository.js';
+export type { Queryable } from './queryable.js';
+export { createSessionRepository } from './session-repository.js';
+export { createUserRepository } from './user-repository.js';
+export { createUserTokenRepository } from './user-token-repository.js';
