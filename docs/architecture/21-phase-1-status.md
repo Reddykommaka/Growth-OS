@@ -127,3 +127,44 @@ Three things were wrong, and all three are fixed:
 
 Item 3 is the significant one: it means the repo-wide enforcement has been silently stale on
 every cache hit since Phase 0.
+
+## 7. Work item 1.9 — the credential bootstrap defect (ADR-0018)
+
+Invitations and API keys are presented by somebody who is not yet inside a tenant. Both live
+in tenant-scoped tables (`invitations`, `api_keys`, migration 0005) whose RLS policy fails
+closed with no `app.organization_id`. So reading the row required knowing the organization,
+and the only way to learn the organization was to read the row — the same circularity
+migration 0007 resolves for the accessible-workspace set.
+
+It was caught by a test, not by review: 11 of 22 invitation cases failed, every one returning
+`invalid`, because acceptance ran through `withoutTenantContext` — whose own suite asserts it
+"still sees ZERO tenant rows". The code could not have worked, and the guarantee it violated
+was already documented and tested.
+
+The fix is [ADR-0018](../adr/0018-credentials-carry-their-tenant.md): the credential names
+its tenant, as an untrusted routing hint, and the row is then read under RLS inside that
+tenant's scope. A relaxed policy and a `SECURITY DEFINER` resolver were both considered and
+rejected there. **The system still contains no code path that bypasses RLS.**
+
+Two consequences worth recording:
+
+1. **The wrong-organization attack became expressible, and is now tested actively.** Before,
+   "you cannot choose the organization" was true because there was no parameter. Now there
+   is one — and rewriting it is refused twice over, by the policy and by the hash. Both
+   directions are asserted, including that the genuine credential still works afterwards.
+2. **`withOrganizationScope` grew from one caller to three, and simultaneously got
+   narrower.** Its capability is now a required argument rather than a fixed `'all'`. Two of
+   the three callers pass `'set'` with an empty workspace set and therefore cannot see a
+   workspace-scoped row at all. The architecture test pins the caller list *and* the shorter
+   list permitted to ask for `'all'`, and asserts that both sanctioned sites genuinely do ask
+   — so the rule cannot start passing because the call disappeared.
+
+### Still open after 1.9
+
+- Test files and `src/__testing__/` are excluded from `tsc --build`, so **no test file in the
+  repository is typechecked**. Vitest transforms them with esbuild, which strips types
+  without checking them. A test asserting against a field that no longer exists would run and
+  pass. This predates 1.9 and is not fixed here.
+- Invitation delivery is a contract with no production implementation; `platform/notifications`
+  is still pending, and the production notifier should enqueue through the outbox (ADR-0007)
+  rather than send inline.
