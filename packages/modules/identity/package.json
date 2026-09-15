@@ -24,18 +24,19 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@growth-os/authn": "workspace:*",
     "@growth-os/errors": "workspace:*",
     "@growth-os/types": "workspace:*",
-    "openid-client": "6.8.8",
-    "@growth-os/authn": "workspace:*"
+    "openid-client": "6.8.8"
   },
   "devDependencies": {
-    "vitest": "5.0.0",
-    "@types/pg": "8.23.1",
-    "@growth-os/testing": "workspace:*",
-    "pg": "8.16.3",
-    "@growth-os/module-organization": "workspace:*",
     "@growth-os/authz": "workspace:*",
-    "@growth-os/db": "workspace:*"
+    "@growth-os/db": "workspace:*",
+    "@growth-os/module-organization": "workspace:*",
+    "@growth-os/testing": "workspace:*",
+    "@types/pg": "8.23.1",
+    "jose": "6.2.12",
+    "pg": "8.16.3",
+    "vitest": "5.0.0"
   }
 }

@@ -5,6 +5,11 @@
  * wires them into the application services.
  */
 export { createMfaRepository } from './mfa-repository.js';
+export {
+  createOAuthRequestRepository,
+  createUserIdentityRepository,
+} from './oauth-repository.js';
+export { createOidcProvider, type OidcProviderConfig } from './oidc-provider.js';
 export type { Queryable } from './queryable.js';
 export { createSessionRepository } from './session-repository.js';
 export { createUserRepository } from './user-repository.js';

@@ -38,6 +38,18 @@ export const REDACTED_KEYS: readonly string[] = [
   'totpSecret',
   'mfaSecret',
   'recoveryCode',
+  // OAuth. The PKCE verifier is a live credential for the lifetime of an authorization
+  // request: whoever holds it plus an intercepted code can complete the exchange.
+  'codeVerifier',
+  'code_verifier',
+  'pkceVerifier',
+  'pkce_verifier',
+  'authorizationCode',
+  'authorization_code',
+  // NOT `code`, `state` or `nonce`. Those key names collide constantly with innocuous
+  // fields — an error code, an HTTP status code, a country code, a UI state — and redacting
+  // them wholesale would gut the logs and teach people that [redacted] means nothing. The
+  // OAuth module simply never logs those three; a test asserts it.
   'creditCard',
   'cardNumber',
   'cvv',

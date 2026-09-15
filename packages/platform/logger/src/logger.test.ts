@@ -138,3 +138,39 @@ describe('correlation context', () => {
     expect(out).toContain('job-9');
   });
 });
+
+/**
+ * OAuth credentials must not survive into a log line.
+ *
+ * The PKCE verifier is the one that matters: an attacker holding an intercepted authorization
+ * code still cannot exchange it without the verifier, so a verifier in a log undoes PKCE
+ * entirely.
+ */
+describe('OAuth credentials are redacted', () => {
+  it.each([
+    'codeVerifier',
+    'code_verifier',
+    'pkceVerifier',
+    'pkce_verifier',
+    'authorizationCode',
+    'authorization_code',
+    'id_token',
+    'access_token',
+    'refresh_token',
+    'client_secret',
+  ])('redacts %s', (key) => {
+    const output = capture((log) => log.info({ [key]: 'super-secret-value' }, 'oauth'));
+    expect(output).not.toContain('super-secret-value');
+  });
+
+  /**
+   * Deliberately NOT redacted. These key names collide with innocuous fields everywhere — an
+   * error code, an HTTP status code, a UI state — and blanket-redacting them would gut the
+   * logs and teach people that [redacted] carries no signal. The OAuth module never logs
+   * them; that is enforced where they live, not here.
+   */
+  it.each(['code', 'state', 'nonce'])('leaves %s alone, by design', (key) => {
+    const output = capture((log) => log.info({ [key]: 'ordinary-value' }, 'not a credential'));
+    expect(output).toContain('ordinary-value');
+  });
+});
