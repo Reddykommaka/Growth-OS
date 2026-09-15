@@ -43,6 +43,12 @@ export interface ActorContext {
    * app.workspace_ids. Computed by resolveAccessibleWorkspaces, never by a call site.
    */
   readonly accessibleWorkspaceIds: readonly string[];
+  /**
+   * How far this actor may see across the tenant's workspaces, handed to the database as
+   * app.workspace_scope. 'all' only for an actor with genuine organization-wide workspace
+   * access; every other actor is bound to `accessibleWorkspaceIds`.
+   */
+  readonly workspaceScope: 'set' | 'all';
   /** Teams the actor belongs to, used to match team-scoped assignments to workspaces. */
   readonly teamIds: readonly string[];
   /** Workspaces each of the actor's teams can reach, including team_workspace_access. */

@@ -218,19 +218,20 @@ describe('roles — the asymmetric policy that the generic probe cannot cover', 
 });
 
 /**
- * `workspaces` is ORGANIZATION-scoped (05 §3 level 2), not restricted to the accessible set.
+ * `workspaces` read access is bounded by BOTH the organization and the actor's reach.
  *
- * An earlier version of this migration restricted reads to app.workspace_ids, to stop a
- * client_guest learning the agency's other clients exist. It is circular: the set is
- * computed by reading this table, so a policy demanding the set makes the set underivable —
- * every actor resolved to an empty set, the organization's owner included. See
- * db/policies/workspaces.sql for where that containment actually lives.
- *
- * These tests pin the level-2 behaviour so the tightening is not reintroduced by someone
- * reading only the client_guest requirement.
+ * Two earlier shapes were wrong. Restricting reads to `app.workspace_ids` alone is circular
+ * (the set is computed from this table, so nothing resolves). The plain organization
+ * predicate is not circular but lets any session enumerate the whole tenant's workspaces.
+ * Migration 0007 adds `app.workspace_scope` to separate the two, and these tests pin each
+ * branch of it. See db/policies/workspaces.sql for the full history.
  */
-describe('workspaces — organization-scoped, independent of the workspace set', () => {
-  async function asOrgA<T>(workspaceIds: string[], fn: (c: Client) => Promise<T>): Promise<T> {
+describe('workspaces — bounded by the workspace scope as well as the tenant', () => {
+  async function asOrgA<T>(
+    workspaceIds: string[],
+    scope: 'set' | 'all',
+    fn: (c: Client) => Promise<T>,
+  ): Promise<T> {
     const client = await db.pool.connect();
     try {
       await client.query('BEGIN');
@@ -239,6 +240,7 @@ describe('workspaces — organization-scoped, independent of the workspace set',
         'app.workspace_ids',
         `{${workspaceIds.join(',')}}`,
       ]);
+      await client.query('SELECT set_config($1, $2, true)', ['app.workspace_scope', scope]);
       return await fn(client as unknown as Client);
     } finally {
       await client.query('ROLLBACK').catch(() => undefined);
@@ -246,29 +248,62 @@ describe('workspaces — organization-scoped, independent of the workspace set',
     }
   }
 
-  it("returns the organization's workspaces regardless of the set", async () => {
-    const r = await asOrgA([], (c) => c.query('SELECT slug FROM workspaces WHERE id = $1', [WS_A]));
-    expect(r.rowCount).toBe(1);
-  });
-
-  it('is readable with the set populated too', async () => {
-    const r = await asOrgA([WS_A], (c) =>
+  it('returns a workspace that is in the set', async () => {
+    const r = await asOrgA([WS_A], 'set', (c) =>
       c.query('SELECT slug FROM workspaces WHERE id = $1', [WS_A]),
     );
     expect(r.rowCount).toBe(1);
   });
 
-  it("still hides another organization's workspace — the tenant boundary is unaffected", async () => {
-    const r = await asOrgA([WS_A, WS_B], (c) =>
+  it('hides a workspace in the same organization that is NOT in the set', async () => {
+    const other = '01890a5d-ac96-774b-bcce-b302099a9299';
+    await admin.query(
+      `INSERT INTO workspaces (id, organization_id, slug, name) VALUES ($1, $2, 'other', 'Other')`,
+      [other, ORG_A],
+    );
+    const r = await asOrgA([WS_A], 'set', (c) =>
+      c.query('SELECT slug FROM workspaces WHERE id = $1', [other]),
+    );
+    expect(r.rowCount).toBe(0);
+  });
+
+  it('returns nothing at all when the set is empty — fails closed', async () => {
+    const r = await asOrgA([], 'set', (c) => c.query('SELECT slug FROM workspaces'));
+    expect(r.rowCount).toBe(0);
+  });
+
+  it("defaults to 'set' when the scope is never written, rather than to 'all'", async () => {
+    const client = await db.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT set_config($1, $2, true)', ['app.organization_id', ORG_A]);
+      // app.workspace_ids and app.workspace_scope deliberately unset.
+      const r = await client.query('SELECT slug FROM workspaces');
+      expect(r.rowCount).toBe(0);
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  });
+
+  it("returns the organization's workspaces under scope 'all'", async () => {
+    const r = await asOrgA([], 'all', (c) =>
+      c.query('SELECT slug FROM workspaces WHERE id = $1', [WS_A]),
+    );
+    expect(r.rowCount).toBe(1);
+  });
+
+  it("still hides another organization's workspace, even under scope 'all'", async () => {
+    const r = await asOrgA([WS_A, WS_B], 'all', (c) =>
       c.query('SELECT slug FROM workspaces WHERE id = $1', [WS_B]),
     );
     expect(r.rowCount).toBe(0);
   });
 
-  it('permits creating a workspace in its own organization', async () => {
+  it('permits creating a workspace in its own organization with an empty set', async () => {
     const fresh = '01890a5d-ac96-774b-bcce-b302099a9301';
     await expect(
-      asOrgA([], (c) =>
+      asOrgA([], 'set', (c) =>
         c.query(
           `INSERT INTO workspaces (id, organization_id, slug, name)
              VALUES ($1, $2, 'fresh', 'Fresh')`,
@@ -280,7 +315,7 @@ describe('workspaces — organization-scoped, independent of the workspace set',
 
   it('REFUSES to create a workspace in another organization', async () => {
     await expect(
-      asOrgA([], (c) =>
+      asOrgA([], 'all', (c) =>
         c.query(
           `INSERT INTO workspaces (id, organization_id, slug, name)
              VALUES (gen_random_uuid(), $1, 'smuggled', 'Smuggled')`,

@@ -24,10 +24,12 @@ export {
   PERMISSIONS,
   type Permission,
   permissionModule,
+  permissionScope,
   SENSITIVE_PERMISSIONS,
 } from './permissions.js';
 export { type RoleScope, SYSTEM_ROLES, type SystemRole, systemRole } from './roles.js';
 export {
+  grantsOrganizationWideWorkspaceAccess,
   type ResolvedWorkspaceSet,
   resolveAccessibleWorkspaces,
   toPostgresArrayLiteral,

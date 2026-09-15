@@ -9,8 +9,7 @@
  * This file covers the two that remain: secret scanning and component accessibility.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -132,9 +131,25 @@ describe('gate: a committed secret is blocked', () => {
 describe('gate: an inaccessible component is rejected', () => {
   const uiDir = join(REPO, 'packages/ui');
 
-  /** Writes a throwaway spec into packages/ui and runs it. */
+  /**
+   * Writes a throwaway spec into packages/ui/src and runs it.
+   *
+   * It has to live there: vitest resolves test files relative to its root, and the spec
+   * needs the ui package's own alias config and dependency chain. A copy in the OS temp
+   * directory is simply not found ("No test files found"), and moving the root to the temp
+   * directory breaks module resolution for React and the component under test.
+   *
+   * That makes this suite a WRITER to the source tree while the boundary suite is a READER
+   * of it. Those two must never run concurrently — under load, dependency-cruiser walked a
+   * fixture this function had already deleted:
+   *
+   *   ENOENT: ... open '/…/packages/ui/src/__gate_1789437974653_lev3x1r67p.test.tsx'
+   *
+   * and it surfaced as an unreadable JSON parse error in a different file. The fix is
+   * `fileParallelism: false` in this package's vitest config, which is load-bearing rather
+   * than a performance choice — see the comment there.
+   */
   const runSpec = (source: string): { code: number; out: string } => {
-    const dir = mkdtempSync(join(tmpdir(), 'gos-a11y-'));
     const file = join(
       uiDir,
       'src',
@@ -145,7 +160,6 @@ describe('gate: an inaccessible component is rejected', () => {
       return run('./node_modules/.bin/vitest', ['run', file, '--root', uiDir], uiDir);
     } finally {
       run('rm', ['-f', file]);
-      run('rm', ['-rf', dir]);
     }
   };
 

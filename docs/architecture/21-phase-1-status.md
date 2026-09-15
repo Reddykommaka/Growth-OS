@@ -57,25 +57,42 @@ Phase 1 is **not complete**. These items from [14-roadmap.md](14-roadmap.md) rem
   slower than specified; membership removal being immediate is a property of recomputation,
   so the cache must preserve it when added.
 
-## 4. One architectural correction, recorded
+## 4. Two architectural corrections, recorded
 
-**`workspaces` is organization-scoped (level 2), not restricted by the accessible set.**
+### 4.1 `workspaces` scoping — wrong twice before it was right
 
-Work item 1.1 gave it a policy requiring `id = ANY(app_current_workspace_ids())`, intending
-to stop a `client_guest` learning that the agency's other clients exist. That is circular:
-the accessible set is computed *by reading that table*, so a policy demanding the set makes
-the set underivable. Every actor resolved to an empty set — including the organization's
-owner, locked out of the tenant they had just created.
+**Attempt 1** (work item 1.1) restricted reads to `id = ANY(app_current_workspace_ids())`.
+Circular: the accessible set is computed *by reading that table*, so every actor resolved to
+an empty set — including the organization's owner, locked out of the tenant they had just
+created.
 
-[05-data-architecture.md](05-data-architecture.md) §3 already settles it: level 3 is a table
-"additionally [carrying] `workspace_id NOT NULL`". `workspaces` has no such column — it *is*
-the workspace — so it is level 2.
+**Attempt 2** (work item 1.4) used the plain organization predicate. Not circular, but it
+left an authorization boundary defect: any session could enumerate every workspace row in
+its own tenant with raw SQL regardless of its accessible set. A `client_guest` — someone
+outside the tenant organization entirely — could read the agency's whole client list.
 
-**Residual risk, stated plainly:** a session with the application check bypassed could
-enumerate workspace *names* within its own organization. It cannot reach another tenant, and
-it cannot read any workspace's contents. Documented in `db/policies/workspaces.sql` and
-pinned by a test that asserts it as a fact, not as a desired property — a test claiming the
-row was hidden would pass only until someone checked.
+**Migration 0007** breaks the circle with a third setting rather than by weakening the
+predicate. `app.workspace_scope` separates the two situations attempt 1 conflated: `'set'`
+(the default, and every ordinary session) bounds reads to `app.workspace_ids`; `'all'` is
+claimed by exactly two callers — the resolver, which runs before any session exists and must
+read the team→workspace topology to compute the set at all, and a session whose actor
+genuinely holds organization-wide workspace access, for whom the two are equivalent.
+
+An architecture test pins that `withOrganizationScope` is defined once and called once.
+
+### 4.2 An organization-scoped role is not automatically tenant-wide
+
+`hasOrganizationScopedRole` was true for *any* organization-scoped assignment — including
+`member`, whose entire permission set is `organization.organization:read`. A plain member
+therefore resolved to an accessible set containing every workspace in the organization.
+
+That set becomes `app.workspace_ids`, which is the predicate every workspace-scoped table is
+filtered by, so this was materially worse than 4.1: not a leak of names, but of content. It
+now requires an organization-scoped role granting at least one workspace-scoped permission,
+computed by `grantsOrganizationWideWorkspaceAccess`.
+
+Both are covered by `workspace-boundary.test.ts`, and both were verified to FAIL that suite
+when the fix is reverted.
 
 ## 5. Carried from the Phase 0 gate, still open
 
@@ -88,9 +105,25 @@ row was hidden would pass only until someone checked.
    assumption: GDPR-ready with `data_region` present and unused (it is on `organizations` as
    of migration 0004), SOC 2 evidence gathered continuously with the audit after GA.
 
-## 6. One unreproduced intermittent
+## 6. The "intermittent" was a real race, now fixed
 
-A single run of the test stage under concurrency failed parsing `dependency-cruiser`'s stdout
-as JSON. Not reproduced in four subsequent runs (one standalone, three full). Recorded rather
-than assumed fixed: CI runs under load too, and a test that fails once in five is a defect
-whether or not it is convenient.
+A test-stage failure that would not reproduce turned out not to be a flake at all.
+`gates.test.ts` writes throwaway component fixtures into `packages/ui/src` (vitest will not
+find them anywhere else), while `boundaries.test.ts` reads the whole source tree with
+dependency-cruiser. Run in parallel, the reader walked a fixture the writer had already
+deleted, and dependency-cruiser reported it by exiting non-zero with **no stdout** — which
+surfaced as an unreadable JSON parse error in a different file.
+
+Three things were wrong, and all three are fixed:
+
+1. The suites raced. `fileParallelism: false` in that package's vitest config removes it by
+   construction. Verified 6/6 at the concurrency that previously failed 2 runs in 3.
+2. The failure was undiagnosable. The helper discarded the exit code and stderr, so a real
+   error became "Unexpected end of JSON input". It now reports both.
+3. **The suite was being cached.** `@growth-os/architecture-tests#test` reads the entire
+   source tree, but turbo hashed only the package's own 39 files — so every cache hit
+   replayed a pass computed against a different tree. That is how a genuine violation in
+   `provisioning.ts` reached a green gate in work item 1.4. The task is now `cache: false`.
+
+Item 3 is the significant one: it means the repo-wide enforcement has been silently stale on
+every cache hit since Phase 0.

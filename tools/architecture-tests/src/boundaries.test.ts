@@ -44,6 +44,34 @@ const depcruise = (globs: string[]) =>
     ...globs,
   ]);
 
+/**
+ * Parses a dependency-cruiser report, reporting WHY it could not be parsed.
+ *
+ * `run` returns an empty stdout when the process exits non-zero, so a bare
+ * `JSON.parse(result.stdout)` fails with "Unexpected end of JSON input" and discards the
+ * exit code and stderr that say what actually went wrong. That turned a reproducible
+ * failure under concurrent load into an unreadable one, and cost a session's worth of
+ * guessing.
+ */
+function parseReport(result: { code: number; stdout: string; stderr: string }): {
+  summary: { totalCruised: number; error: number; violations: { rule: { name: string } }[] };
+} {
+  if (result.stdout.trim() === '') {
+    throw new Error(
+      `dependency-cruiser produced no output (exit ${result.code}).\nstderr:\n${result.stderr}`,
+    );
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(
+      `dependency-cruiser output was not JSON (exit ${result.code}, ` +
+        `${result.stdout.length} bytes).\nfirst 400 bytes:\n${result.stdout.slice(0, 400)}\n` +
+        `stderr:\n${result.stderr}\nparse error: ${(error as Error).message}`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Mechanism 1 — package.json "exports" maps
 // ---------------------------------------------------------------------------
@@ -80,7 +108,7 @@ describe('mechanism 1: exports maps expose only a package public surface', () =>
 // ---------------------------------------------------------------------------
 describe('mechanism 3: dependency-cruiser rejects architectural violations', () => {
   const result = depcruise([`${FIXTURES}/**/*.ts`]);
-  const report = JSON.parse(result.stdout) as {
+  const report = parseReport(result) as unknown as {
     summary: {
       totalCruised: number;
       violations: { rule: { name: string }; from: string; to: string }[];
@@ -113,9 +141,7 @@ describe('mechanism 3: the real source tree is clean', () => {
     // exactly the tracked sources. A recursive shell glob instead walks pnpm's workspace
     // symlinks under node_modules, reporting the same file many times and taking minutes.
     const result = depcruise(['packages', 'apps']);
-    const report = JSON.parse(result.stdout) as {
-      summary: { totalCruised: number; error: number; violations: { rule: { name: string } }[] };
-    };
+    const report = parseReport(result);
     expect(report.summary.totalCruised).toBeGreaterThan(50);
     expect(report.summary.violations.filter((v) => v.rule.name !== 'no-orphan-source')).toEqual([]);
   });

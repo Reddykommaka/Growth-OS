@@ -13,6 +13,7 @@
  */
 import {
   type ActorContext,
+  grantsOrganizationWideWorkspaceAccess,
   type Permission,
   type RoleAssignment,
   resolveAccessibleWorkspaces,
@@ -119,9 +120,10 @@ export async function resolveActorContext(
       workspacesOwnedByTeam: owned,
       workspacesGrantedToTeam: granted,
       allOrganizationWorkspaceIds: allWorkspaces,
-      hasOrganizationScopedRole: assignments.some(
-        (a) => a.teamId === undefined && a.workspaceId === undefined,
-      ),
+      // NOT "holds any organization-scoped assignment". `member` is organization-scoped and
+      // grants only organization.organization:read; treating that as tenant-wide gave a
+      // plain member every workspace in the organization. See the helper's doc comment.
+      hasOrganizationScopedRole: grantsOrganizationWideWorkspaceAccess(assignments),
     });
 
     const grants = await loadResourceGrants(client, input.organizationId, row.id, teamIds);
@@ -135,6 +137,7 @@ export async function resolveActorContext(
       assignments,
       resourceGrants: grants,
       accessibleWorkspaceIds: resolved.workspaceIds,
+      workspaceScope: resolved.workspaceScope,
       teamIds: resolved.teamIds,
       workspacesByTeam: resolved.workspacesByTeam,
       mfaSatisfied: input.mfaSatisfied,

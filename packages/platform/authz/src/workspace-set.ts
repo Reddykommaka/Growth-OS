@@ -1,3 +1,5 @@
+import { type Permission, permissionScope } from './permissions.js';
+
 /**
  * Accessible-workspace-set resolution.
  *
@@ -19,10 +21,22 @@ export interface WorkspaceSetInput {
   readonly workspacesGrantedToTeam: ReadonlyMap<string, readonly string[]>;
   /**
    * Every workspace in the organization. Used ONLY when the actor holds an
-   * organization-scoped role, which by definition spans the whole tenant.
+   * organization-scoped role that actually grants workspace-level access.
    */
   readonly allOrganizationWorkspaceIds: readonly string[];
-  /** Whether the actor holds any organization-scoped role assignment. */
+  /**
+   * Whether the actor holds an organization-scoped role that grants at least one
+   * WORKSPACE-SCOPED permission.
+   *
+   * Not "holds any organization-scoped assignment" — that was a defect. `member` is an
+   * organization-scoped role whose entire permission set is `organization.organization:read`;
+   * treating it as organization-wide handed a plain member an accessible set containing every
+   * workspace in the tenant, which is the value `app.workspace_ids` is built from and
+   * therefore the predicate every workspace-scoped table is filtered by.
+   *
+   * Callers must compute this with `grantsOrganizationWideWorkspaceAccess`, never by
+   * checking assignment shape.
+   */
   readonly hasOrganizationScopedRole: boolean;
   /** An API key narrowed to one workspace cannot widen itself through team membership. */
   readonly restrictToWorkspaceId?: string;
@@ -32,6 +46,35 @@ export interface ResolvedWorkspaceSet {
   readonly workspaceIds: readonly string[];
   readonly teamIds: readonly string[];
   readonly workspacesByTeam: ReadonlyMap<string, readonly string[]>;
+  /**
+   * How far the database should let this actor see across the tenant's workspaces.
+   *
+   * 'all' only when organization-wide workspace access was genuinely earned AND no narrowing
+   * (an API key bound to one workspace) applies. Everything else is 'set'.
+   */
+  readonly workspaceScope: 'set' | 'all';
+}
+
+/**
+ * Whether a set of organization-scoped assignments grants workspace-level access.
+ *
+ * An assignment at organization scope spans the tenant only if the role it carries actually
+ * reaches into workspaces. A role that can read the organization record and nothing else
+ * reaches no workspace at all, and must resolve to an empty set.
+ */
+export function grantsOrganizationWideWorkspaceAccess(
+  assignments: readonly {
+    readonly teamId?: string;
+    readonly workspaceId?: string;
+    readonly permissions: readonly Permission[];
+  }[],
+): boolean {
+  return assignments.some(
+    (a) =>
+      a.teamId === undefined &&
+      a.workspaceId === undefined &&
+      a.permissions.some((p) => permissionScope(p) === 'workspace'),
+  );
 }
 
 /**
@@ -68,10 +111,16 @@ export function resolveAccessibleWorkspaces(input: WorkspaceSetInput): ResolvedW
   const workspaceIds =
     restrict === undefined ? [...accessible].sort() : accessible.has(restrict) ? [restrict] : [];
 
+  // Organization-wide scope survives only if nothing narrows it. A key bound to one
+  // workspace must not inherit 'all' from the member who created it.
+  const workspaceScope: 'set' | 'all' =
+    input.hasOrganizationScopedRole && restrict === undefined ? 'all' : 'set';
+
   return {
     workspaceIds,
     teamIds: [...input.teamIds].sort(),
     workspacesByTeam: byTeam,
+    workspaceScope,
   };
 }
 

@@ -169,6 +169,7 @@ export async function asPrincipal<T>(body: (c: PoolClient) => Promise<T>): Promi
       organizationId: orgId,
       userId: users.principal,
       workspaceIds: ctx.accessibleWorkspaceIds,
+      workspaceScope: ctx.workspaceScope,
     },
     async (tx) => await body(tx.client),
   );
@@ -220,7 +221,12 @@ export async function visibleWorkspaces(userId: string): Promise<string[]> {
   if (ctx === undefined) return [];
   return await withTenant(
     db.pool,
-    { organizationId: orgId, userId, workspaceIds: ctx.accessibleWorkspaceIds },
+    {
+      organizationId: orgId,
+      userId,
+      workspaceIds: ctx.accessibleWorkspaceIds,
+      workspaceScope: ctx.workspaceScope,
+    },
     async (tx) => {
       const r = await tx.query<{ slug: string }>(
         'SELECT slug FROM workspaces WHERE id = ANY($1::uuid[]) ORDER BY slug',
@@ -241,7 +247,12 @@ export async function visibleContent(userId: string): Promise<string[]> {
   if (ctx === undefined) return [];
   return await withTenant(
     db.pool,
-    { organizationId: orgId, userId, workspaceIds: ctx.accessibleWorkspaceIds },
+    {
+      organizationId: orgId,
+      userId,
+      workspaceIds: ctx.accessibleWorkspaceIds,
+      workspaceScope: ctx.workspaceScope,
+    },
     async (tx) => {
       const r = await tx.query<{ title: string }>('SELECT title FROM content_probe ORDER BY title');
       return r.rows.map((row) => row.title);

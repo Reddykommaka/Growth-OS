@@ -92,14 +92,46 @@ describe('withTenant applies the context the actor resolved', () => {
     expect(rows).toEqual([]);
   });
 
-  it('sees every workspace row in its organization — that table is level 2', async () => {
+  it('sees only the workspaces in its set — the scope defaults to `set`', async () => {
     const rows = await withTenant(
       db.pool,
       { organizationId: ORG_A, workspaceIds: [WS_A1] },
       async (tx) =>
         (await tx.query<{ slug: string }>('SELECT slug FROM workspaces ORDER BY slug')).rows,
     );
+    expect(rows.map((r) => r.slug)).toEqual(['a1']);
+  });
+
+  /**
+   * An omitted scope must never mean 'all'. This is the fail-closed half of migration 0007:
+   * a caller that forgets the field gets the narrow behaviour, not the wide one.
+   */
+  it("treats an omitted workspaceScope as 'set', never 'all'", async () => {
+    const rows = await withTenant(
+      db.pool,
+      { organizationId: ORG_A, workspaceIds: [] },
+      async (tx) => (await tx.query('SELECT slug FROM workspaces')).rows,
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("sees every workspace in its organization under scope 'all'", async () => {
+    const rows = await withTenant(
+      db.pool,
+      { organizationId: ORG_A, workspaceIds: [], workspaceScope: 'all' },
+      async (tx) =>
+        (await tx.query<{ slug: string }>('SELECT slug FROM workspaces ORDER BY slug')).rows,
+    );
     expect(rows.map((r) => r.slug)).toEqual(['a1', 'a2']);
+  });
+
+  it("still sees no other organization's workspace under scope 'all'", async () => {
+    const rows = await withTenant(
+      db.pool,
+      { organizationId: ORG_A, workspaceIds: [WS_B1], workspaceScope: 'all' },
+      async (tx) => (await tx.query('SELECT slug FROM workspaces WHERE id = $1', [WS_B1])).rows,
+    );
+    expect(rows).toEqual([]);
   });
 
   it('sees exactly the workspace-SCOPED rows in the resolved set', async () => {

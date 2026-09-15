@@ -100,3 +100,54 @@ describe('tenant context is only ever transaction-scoped', () => {
     expect(text).toMatch(/set_config\(\$1,\s*\$2,\s*true\)/);
   });
 });
+
+/**
+ * `withOrganizationScope` is the one function that claims organization-wide workspace reach
+ * without an actor having earned it (migration 0007). It exists because the actor-context
+ * resolver has a genuine bootstrap problem: the accessible set is computed by reading the
+ * team→workspace topology, so resolution cannot run inside a policy that demands the set.
+ *
+ * Its safety rests entirely on being narrow — one function, one caller, reading ids and
+ * team ids and returning a computed set rather than rows. That is a property of the call
+ * graph, so it is asserted against the call graph. A second caller is how a bootstrap
+ * primitive quietly becomes a way to see the whole tenant.
+ */
+describe('organization-wide scope is claimed in exactly one place', () => {
+  const files = sourceFiles();
+  const DEFINITION = 'packages/platform/db/src/tenant-context.ts';
+  const RESOLVER = 'packages/modules/organization/src/infrastructure/actor-resolver.ts';
+
+  it('is defined only in the unit of work', () => {
+    const definers = files.filter(
+      (file) =>
+        file !== DEFINITION &&
+        /export\s+async\s+function\s+withOrganizationScope/.test(
+          readFileSync(resolve(REPO, file), 'utf8'),
+        ),
+    );
+    expect(definers).toEqual([]);
+  });
+
+  it('is called only by the actor-context resolver', () => {
+    const callers = files.filter((file) => {
+      if (file === DEFINITION) return false;
+      // Tests may drive it directly; they are not an application code path.
+      if (/\.test\.tsx?$/.test(file)) return false;
+      return /\bwithOrganizationScope\s*\(/.test(readFileSync(resolve(REPO, file), 'utf8'));
+    });
+    expect(callers).toEqual([RESOLVER]);
+  });
+
+  it('nothing else writes the workspace scope setting', () => {
+    const offenders = files.filter((file) => {
+      if (file === DEFINITION) return false;
+      if (/\.test\.tsx?$/.test(file)) return false;
+      const text = readFileSync(resolve(REPO, file), 'utf8');
+      // A WRITE, not a mention. The setting name appears in doc comments across the
+      // codebase — that is documentation, and flagging it trains people to ignore this
+      // check. Only set_config combined with the name is a write.
+      return /set_config\s*\(/.test(text) && /['"`]app\.workspace_scope['"`]/.test(text);
+    });
+    expect(offenders).toEqual([]);
+  });
+});

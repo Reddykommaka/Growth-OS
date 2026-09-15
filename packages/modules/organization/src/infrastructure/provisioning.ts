@@ -15,6 +15,7 @@
  * below is preceded by setting the context once the organization id exists.
  */
 import { randomUUID } from 'node:crypto';
+import { withNewTenant } from '@growth-os/db';
 import { ValidationError } from '@growth-os/errors';
 import type { Pool, PoolClient } from 'pg';
 import { systemRoleId } from './actor-resolver.js';
@@ -59,80 +60,74 @@ export async function provisionOrganization(
     );
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const organizationId = randomUUID();
 
-    const organizationId = randomUUID();
-    await client.query('SELECT set_config($1, $2, true)', ['app.organization_id', organizationId]);
-    await client.query('SELECT set_config($1, $2, true)', ['app.user_id', input.ownerUserId]);
-
-    await client.query(
-      `INSERT INTO organizations (id, slug, name, kind, billing_email, default_timezone)
+  return await withNewTenant(
+    pool,
+    organizationId,
+    input.ownerUserId,
+    async (client: PoolClient) => {
+      await client.query(
+        `INSERT INTO organizations (id, slug, name, kind, billing_email, default_timezone)
          VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'UTC'))`,
-      [
-        organizationId,
-        input.slug,
-        input.name,
-        input.kind,
-        input.billingEmail ?? null,
-        input.timezone ?? null,
-      ],
-    );
+        [
+          organizationId,
+          input.slug,
+          input.name,
+          input.kind,
+          input.billingEmail ?? null,
+          input.timezone ?? null,
+        ],
+      );
 
-    // Every organization gets a default team, agency or not. See the file header.
-    const defaultTeamId = randomUUID();
-    await client.query(
-      `INSERT INTO teams (id, organization_id, slug, name, is_default)
+      // Every organization gets a default team, agency or not. See the file header.
+      const defaultTeamId = randomUUID();
+      await client.query(
+        `INSERT INTO teams (id, organization_id, slug, name, is_default)
          VALUES ($1, $2, 'default', $3, true)`,
-      [defaultTeamId, organizationId, input.kind === 'agency' ? 'Core team' : 'Everyone'],
-    );
+        [defaultTeamId, organizationId, input.kind === 'agency' ? 'Core team' : 'Everyone'],
+      );
 
-    const ownerMemberId = randomUUID();
-    await client.query(
-      `INSERT INTO organization_members
+      const ownerMemberId = randomUUID();
+      await client.query(
+        `INSERT INTO organization_members
          (id, organization_id, user_id, status, member_type, joined_at)
          VALUES ($1, $2, $3, 'active', 'staff', now())`,
-      [ownerMemberId, organizationId, input.ownerUserId],
-    );
-
-    await client.query(
-      `INSERT INTO team_members (id, organization_id, team_id, organization_member_id, role)
-         VALUES ($1, $2, $3, $4, 'team_lead')`,
-      [randomUUID(), organizationId, defaultTeamId, ownerMemberId],
-    );
-
-    await client.query(
-      `INSERT INTO role_assignments (id, organization_id, organization_member_id, role_id)
-         VALUES ($1, $2, $3, $4)`,
-      [randomUUID(), organizationId, ownerMemberId, systemRoleId('owner')],
-    );
-
-    // A direct business works in one workspace and should never be asked to create it.
-    // An agency's workspaces are its clients, so it starts with none.
-    let initialWorkspaceId: string | undefined;
-    if (input.kind === 'business') {
-      initialWorkspaceId = randomUUID();
-      await client.query(
-        `INSERT INTO workspaces (id, organization_id, team_id, slug, name, kind, timezone)
-           VALUES ($1, $2, $3, 'main', $4, 'internal', COALESCE($5, 'UTC'))`,
-        [initialWorkspaceId, organizationId, defaultTeamId, input.name, input.timezone ?? null],
+        [ownerMemberId, organizationId, input.ownerUserId],
       );
-    }
 
-    await client.query('COMMIT');
-    return {
-      organizationId,
-      defaultTeamId,
-      ownerMemberId,
-      ...(initialWorkspaceId === undefined ? {} : { initialWorkspaceId }),
-    };
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
+      await client.query(
+        `INSERT INTO team_members (id, organization_id, team_id, organization_member_id, role)
+         VALUES ($1, $2, $3, $4, 'team_lead')`,
+        [randomUUID(), organizationId, defaultTeamId, ownerMemberId],
+      );
+
+      await client.query(
+        `INSERT INTO role_assignments (id, organization_id, organization_member_id, role_id)
+         VALUES ($1, $2, $3, $4)`,
+        [randomUUID(), organizationId, ownerMemberId, systemRoleId('owner')],
+      );
+
+      // A direct business works in one workspace and should never be asked to create it.
+      // An agency's workspaces are its clients, so it starts with none.
+      let initialWorkspaceId: string | undefined;
+      if (input.kind === 'business') {
+        initialWorkspaceId = randomUUID();
+        await client.query(
+          `INSERT INTO workspaces (id, organization_id, team_id, slug, name, kind, timezone)
+           VALUES ($1, $2, $3, 'main', $4, 'internal', COALESCE($5, 'UTC'))`,
+          [initialWorkspaceId, organizationId, defaultTeamId, input.name, input.timezone ?? null],
+        );
+      }
+
+      return {
+        organizationId,
+        defaultTeamId,
+        ownerMemberId,
+        ...(initialWorkspaceId === undefined ? {} : { initialWorkspaceId }),
+      };
+    },
+  );
 }
 
 export interface CreateWorkspaceInput {

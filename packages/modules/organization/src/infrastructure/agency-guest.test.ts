@@ -5,9 +5,10 @@
  * someone OUTSIDE the tenant organization — the client's own reviewer, looking at their own
  * brand's work inside the agency's account (06-identity-and-access.md §3).
  *
- * The containment is stated here exactly as it actually holds, including the one place it
- * does not. A test asserting a containment that does not exist would pass only until
- * somebody checked, and would make the posture look stronger than it is.
+ * The containment is stated here exactly as it actually holds. It once had a documented
+ * gap — a guest could enumerate the agency's client list with raw SQL — which migration
+ * 0007 closed; the test that pinned it now asserts the closure instead. See
+ * workspace-boundary.test.ts for the full regression suite.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -95,17 +96,17 @@ describe('the client guest', () => {
   });
 
   /**
-   * THE ONE PLACE THE CONTAINMENT DOES NOT HOLD, pinned deliberately.
+   * CLOSED in migration 0007. This test previously asserted the opposite.
    *
-   * `workspaces` is organization-scoped (05 §3 level 2) and not restricted by the accessible
-   * set — it cannot be, because the set is computed from that table. So a raw query inside
-   * the tenant is not filtered by RLS, and a guest with a bypassed application check could
-   * enumerate workspace NAMES in the agency it is a guest of.
+   * `workspaces` used to carry only the organization predicate, so a guest with a bypassed
+   * application check could enumerate the agency's whole client list. The test that pinned
+   * that residual said, in its own comment, that closing the gap should make it fail and be
+   * replaced with one asserting zero rows. This is that replacement.
    *
-   * It could not reach another TENANT, and it could not read any workspace's contents. See
-   * db/policies/workspaces.sql for the full statement of this residual.
+   * The guest's session carries workspace_scope 'set', so the policy itself now bounds the
+   * read — no application filtering involved.
    */
-  it('CAN see other workspace rows if the application check is bypassed — the documented residual', async () => {
+  it('cannot enumerate other workspaces even with raw SQL — closed by migration 0007', async () => {
     const ctx = await guestContext();
     const rows = await withTenant(
       db.pool,
@@ -113,13 +114,15 @@ describe('the client guest', () => {
         organizationId: orgId,
         userId: users.clientReviewer,
         workspaceIds: ctx.accessibleWorkspaceIds,
+        workspaceScope: ctx.workspaceScope,
       },
       async (tx) => (await tx.query('SELECT slug FROM workspaces WHERE slug <> $1', ['acme'])).rows,
     );
-    // Asserted as a fact, not as a desired property. If a later phase closes this — by
-    // moving the team→workspace topology onto a table the resolver can read without the set
-    // — this test should FAIL and be replaced with one asserting zero rows.
-    expect(rows.length).toBeGreaterThan(0);
+    expect(rows).toEqual([]);
+  });
+
+  it("resolves to workspace scope 'set', never 'all'", async () => {
+    expect((await guestContext()).workspaceScope).toBe('set');
   });
 });
 
@@ -145,9 +148,11 @@ describe('cross-organization isolation is enforced by RLS, not by the set', () =
       {
         organizationId: orgId,
         userId: users.principal,
-        // Deliberately smuggling the rival's workspace id into the set. RLS must still
-        // refuse, because the organization predicate is the one that decides.
+        // Smuggling the rival's workspace id into the set AND claiming the widest scope.
+        // RLS must still refuse: the organization predicate is the one that decides, and no
+        // scope value relaxes it.
         workspaceIds: [otherWorkspace],
+        workspaceScope: 'all',
       },
       async (tx) =>
         (await tx.query('SELECT slug FROM workspaces WHERE id = $1', [otherWorkspace])).rows,
