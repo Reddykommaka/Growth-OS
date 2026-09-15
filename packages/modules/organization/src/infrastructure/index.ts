@@ -10,6 +10,15 @@ export {
   SYSTEM_ROLE_IDS,
   systemRoleId,
 } from './actor-resolver.js';
+export { createApiKeyRepository } from './api-key-repository.js';
+export {
+  createInvitationRepository,
+  createMembershipWriter,
+  createOrganizationReader,
+  createRoleReader,
+  createWorkspaceTopologyReader,
+  type Queryable,
+} from './invitation-repository.js';
 export {
   type AddMemberInput,
   type AssignRoleInput,
@@ -25,3 +34,4 @@ export {
   type ProvisionInput,
   provisionOrganization,
 } from './provisioning.js';
+export { createTenantScopeFactory } from './tenant-scope.js';

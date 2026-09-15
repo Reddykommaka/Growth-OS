@@ -18,6 +18,12 @@ import { base32Encode } from './encoding.js';
 /** 256 bits, per 06 §2. */
 const TOKEN_BYTES = 32;
 
+/**
+ * uuid v1-v8, RFC 4122 variant. Shared by every credential that carries a tenant id, so
+ * that a malformed hint is rejected here rather than at a `::uuid` cast somewhere deeper.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export interface IssuedToken {
   /** Shown to the holder once. Never stored. */
   readonly token: string;
@@ -55,13 +61,70 @@ export function tokenHashEquals(a: Buffer, b: Buffer): boolean {
 }
 
 /**
+ * A token that NAMES THE TENANT IT BELONGS TO: `<organizationId>.<secret>`.
+ *
+ * It exists because of a bootstrap problem with exactly one honest solution. An invitation
+ * is redeemed by someone who is not yet a member of anything, so there is no tenant context
+ * when the token arrives — but `invitations` is a tenant-scoped table whose RLS policy fails
+ * closed without one. Reading it therefore requires knowing the organization, and the only
+ * way to learn the organization was to read it. (ADR-0018.)
+ *
+ * Carrying the organization in the credential breaks that circle without weakening a policy
+ * or introducing a bypass. The organization segment is an UNTRUSTED ROUTING HINT: it decides
+ * which tenant's scope to open, and settles nothing else. Two independent mechanisms then
+ * make a forged hint useless:
+ *
+ *   1. the RLS policy — the row is visible only if its own `organization_id` equals the
+ *      scope that was opened, so pointing at another tenant finds nothing;
+ *   2. the hash — `sha256` covers the WHOLE token, organization segment included, so a
+ *      secret lifted from one organization's invitation does not hash to a stored value
+ *      under any other. The binding is cryptographic as well as relational.
+ *
+ * `.` is the separator because it appears in neither a uuid nor base64url.
+ */
+export interface IssuedTenantToken {
+  readonly token: string;
+  readonly tokenHash: Buffer;
+}
+
+export function issueTenantToken(organizationId: string): IssuedTenantToken {
+  if (!UUID.test(organizationId)) {
+    throw new TypeError('A tenant token must be issued for a well-formed organization id.');
+  }
+  const token = `${organizationId}.${randomBytes(TOKEN_BYTES).toString('base64url')}`;
+  return { token, tokenHash: hashToken(token) };
+}
+
+export interface ParsedTenantToken {
+  /** The routing hint. Authorises nothing on its own — see the note above. */
+  readonly organizationId: string;
+  readonly secret: string;
+}
+
+/**
+ * Parses a presented tenant token.
+ *
+ * Returns undefined for anything malformed rather than throwing, so that "wrong shape" and
+ * "no such invitation" are indistinguishable to the presenter and the format is not an
+ * oracle.
+ */
+export function parseTenantToken(token: string): ParsedTenantToken | undefined {
+  const dot = token.indexOf('.');
+  if (dot <= 0) return undefined;
+  const organizationId = token.slice(0, dot);
+  const secret = token.slice(dot + 1);
+  if (!UUID.test(organizationId) || secret.length === 0) return undefined;
+  return { organizationId, secret };
+}
+
+/**
  * API key format: `gos_live_<prefix>_<secret>` (06 §2).
  *
  * The prefix is stored in clear so a key is identifiable in a list and by GitHub secret
  * scanning; the secret is Argon2-hashed. Splitting them means a leaked key can be located
  * and revoked without the secret ever being recoverable.
  */
-export const API_KEY_PREFIX_BYTES = 6;
+export const API_KEY_PREFIX_RANDOM_BYTES = 6;
 export const API_KEY_SECRET_BYTES = 24;
 
 export interface IssuedApiKey {
@@ -73,13 +136,32 @@ export interface IssuedApiKey {
   readonly secret: string;
 }
 
-export function issueApiKey(environment: 'live' | 'test' = 'live'): IssuedApiKey {
-  // base32, NOT base64url. The key format uses `_` as its field separator, and base64url's
-  // alphabet contains `_` — so roughly one key in three carried a separator inside its own
-  // prefix or secret and could not be parsed back. base32's alphabet is A-Z and 2-7 only.
-  const prefix = base32Encode(randomBytes(API_KEY_PREFIX_BYTES));
+export function issueApiKey(environment: 'live' | 'test', organizationId: string): IssuedApiKey {
+  if (!UUID.test(organizationId)) {
+    throw new TypeError('An API key must be issued for a well-formed organization id.');
+  }
+  // base32, NOT base64url, for the random half. The key format uses `_` as its field
+  // separator and base64url's alphabet contains `_` — so roughly one key in three carried a
+  // separator inside its own secret and could not be parsed back. base32 is A-Z and 2-7.
+  const prefix =
+    organizationId.replace(/-/g, '') + base32Encode(randomBytes(API_KEY_PREFIX_RANDOM_BYTES));
   const secret = base32Encode(randomBytes(API_KEY_SECRET_BYTES));
   return { key: `gos_${environment}_${prefix}_${secret}`, prefix, secret };
+}
+
+/**
+ * Recovers the organization a prefix names.
+ *
+ * The caller must treat the result as an UNTRUSTED ROUTING HINT: it says which tenant to
+ * open a scope for, and nothing more. The row is then found only if its own
+ * `organization_id` matches that scope, which the RLS policy decides — so a forged hint
+ * finds nothing rather than finding somebody else's key.
+ */
+export function organizationIdFromApiKeyPrefix(prefix: string): string | undefined {
+  const hex = prefix.slice(0, 32);
+  if (!/^[0-9a-f]{32}$/.test(hex)) return undefined;
+  const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return UUID.test(id) ? id : undefined;
 }
 
 export interface ParsedApiKey {

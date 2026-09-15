@@ -86,66 +86,73 @@ export async function resolveActorContext(
   // Scoped to the requested organization, with an empty workspace set. See
   // withOrganizationScope for why that is not a bypass: it narrows what can be read, and
   // the membership query below is what actually authorises.
-  return await withOrganizationScope(pool, input.organizationId, async (client) => {
-    const member = await client.query<{
-      id: string;
-      status: string;
-      member_type: string;
-      org_status: string;
-      mfa_required: boolean;
-    }>(
-      `SELECT m.id, m.status, m.member_type, o.status AS org_status, o.mfa_required
-         FROM organization_members m
-         JOIN organizations o ON o.id = m.organization_id
-        WHERE m.user_id = $1 AND m.organization_id = $2`,
-      [input.userId, input.organizationId],
-    );
+  return await withOrganizationScope(
+    pool,
+    input.organizationId,
+    // 'all' because resolution must see the whole team→workspace topology in order to
+    // compute the set; it reads ids and team ids and returns a computed set, never rows.
+    { reason: 'actor context resolution', workspaceScope: 'all' },
+    async (client) => {
+      const member = await client.query<{
+        id: string;
+        status: string;
+        member_type: string;
+        org_status: string;
+        mfa_required: boolean;
+      }>(
+        `SELECT m.id, m.status, m.member_type, o.status AS org_status, o.mfa_required
+           FROM organization_members m
+           JOIN organizations o ON o.id = m.organization_id
+          WHERE m.user_id = $1 AND m.organization_id = $2`,
+        [input.userId, input.organizationId],
+      );
 
-    const row = member.rows[0];
-    // No membership row, or a removed one, is not an error the caller may distinguish from
-    // a non-existent organization — that difference leaks which organizations exist.
-    if (row === undefined || row.status !== 'active') return undefined;
+      const row = member.rows[0];
+      // No membership row, or a removed one, is not an error the caller may distinguish from
+      // a non-existent organization — that difference leaks which organizations exist.
+      if (row === undefined || row.status !== 'active') return undefined;
 
-    const assignments = await loadAssignments(client, row.id, input.organizationId);
-    const teamIds = await loadTeamIds(client, row.id);
-    const owned = await loadWorkspacesOwnedByTeam(client, input.organizationId);
-    const granted = await loadWorkspacesGrantedToTeam(client, input.organizationId);
-    const allWorkspaces = await loadAllWorkspaceIds(client, input.organizationId);
+      const assignments = await loadAssignments(client, row.id, input.organizationId);
+      const teamIds = await loadTeamIds(client, row.id);
+      const owned = await loadWorkspacesOwnedByTeam(client, input.organizationId);
+      const granted = await loadWorkspacesGrantedToTeam(client, input.organizationId);
+      const allWorkspaces = await loadAllWorkspaceIds(client, input.organizationId);
 
-    const resolved = resolveAccessibleWorkspaces({
-      directWorkspaceIds: assignments
-        .map((a) => a.workspaceId)
-        .filter((id): id is string => id !== undefined),
-      teamIds,
-      workspacesOwnedByTeam: owned,
-      workspacesGrantedToTeam: granted,
-      allOrganizationWorkspaceIds: allWorkspaces,
-      // NOT "holds any organization-scoped assignment". `member` is organization-scoped and
-      // grants only organization.organization:read; treating that as tenant-wide gave a
-      // plain member every workspace in the organization. See the helper's doc comment.
-      hasOrganizationScopedRole: grantsOrganizationWideWorkspaceAccess(assignments),
-    });
+      const resolved = resolveAccessibleWorkspaces({
+        directWorkspaceIds: assignments
+          .map((a) => a.workspaceId)
+          .filter((id): id is string => id !== undefined),
+        teamIds,
+        workspacesOwnedByTeam: owned,
+        workspacesGrantedToTeam: granted,
+        allOrganizationWorkspaceIds: allWorkspaces,
+        // NOT "holds any organization-scoped assignment". `member` is organization-scoped and
+        // grants only organization.organization:read; treating that as tenant-wide gave a
+        // plain member every workspace in the organization. See the helper's doc comment.
+        hasOrganizationScopedRole: grantsOrganizationWideWorkspaceAccess(assignments),
+      });
 
-    const grants = await loadResourceGrants(client, input.organizationId, row.id, teamIds);
+      const grants = await loadResourceGrants(client, input.organizationId, row.id, teamIds);
 
-    return {
-      kind: 'user',
-      userId: input.userId,
-      organizationId: input.organizationId,
-      organizationMemberId: row.id,
-      organizationStatus: row.org_status as ActorContext['organizationStatus'],
-      assignments,
-      resourceGrants: grants,
-      accessibleWorkspaceIds: resolved.workspaceIds,
-      workspaceScope: resolved.workspaceScope,
-      teamIds: resolved.teamIds,
-      workspacesByTeam: resolved.workspacesByTeam,
-      mfaSatisfied: input.mfaSatisfied,
-      mfaRequired: row.mfa_required,
-      impersonated: input.impersonated ?? false,
-      apiKeyScopes: [],
-    } satisfies ActorContext;
-  });
+      return {
+        kind: 'user',
+        userId: input.userId,
+        organizationId: input.organizationId,
+        organizationMemberId: row.id,
+        organizationStatus: row.org_status as ActorContext['organizationStatus'],
+        assignments,
+        resourceGrants: grants,
+        accessibleWorkspaceIds: resolved.workspaceIds,
+        workspaceScope: resolved.workspaceScope,
+        teamIds: resolved.teamIds,
+        workspacesByTeam: resolved.workspacesByTeam,
+        mfaSatisfied: input.mfaSatisfied,
+        mfaRequired: row.mfa_required,
+        impersonated: input.impersonated ?? false,
+        apiKeyScopes: [],
+      } satisfies ActorContext;
+    },
+  );
 }
 
 async function loadAssignments(

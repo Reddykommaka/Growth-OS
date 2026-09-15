@@ -19,6 +19,9 @@
     },
     {
       "path": "../../platform/db"
+    },
+    {
+      "path": "../../platform/authn"
     }
   ]
 }

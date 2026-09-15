@@ -1,7 +1,17 @@
-// @growth-os/module-organization — domain layer
-//
-// Layer rule (03-repository-structure.md §2): domain <- application <- infrastructure.
-// Only 'contracts' and 'infrastructure' are exported from package.json.
-// Domain implementation lands in a later phase; see docs/architecture/14-roadmap.md.
-
-export {};
+/**
+ * @growth-os/module-organization/domain
+ *
+ * Pure tenancy rules: no database, no clock, no I/O.
+ */
+export {
+  addressMatchesInvitation,
+  checkNoEscalation,
+  type EscalationVerdict,
+  INVITATION_TTL_MS,
+  type InvitationFacts,
+  type InvitationScope,
+  type InvitationState,
+  invitationState,
+  memberTypeForRole,
+  scopeMatchesRole,
+} from './invitations.js';

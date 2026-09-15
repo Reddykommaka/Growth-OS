@@ -11,9 +11,12 @@ import {
   hashToken,
   issueApiKey,
   issueRecoveryCode,
+  issueTenantToken,
   issueToken,
   normaliseRecoveryCode,
+  organizationIdFromApiKeyPrefix,
   parseApiKey,
+  parseTenantToken,
   tokenHashEquals,
 } from './tokens.js';
 
@@ -63,17 +66,44 @@ describe('session and verification tokens', () => {
   });
 });
 
+const ORG = '01998000-0000-7000-8000-00000000000a';
+const OTHER_ORG = '01998000-0000-7000-8000-00000000000b';
+
 describe('API keys', () => {
   it('uses the documented format, which secret scanners can match', () => {
-    const { key, prefix, secret } = issueApiKey();
+    const { key, prefix, secret } = issueApiKey('live', ORG);
     expect(key).toBe(`gos_live_${prefix}_${secret}`);
-    // base32 only: the alphabet must not contain the `_` separator, or the key cannot be
-    // parsed back. base64url did contain it, and roughly one key in three was unparseable.
-    expect(key).toMatch(/^gos_live_[A-Z2-7]+_[A-Z2-7]+$/);
+    // The prefix is the organization's hex digits followed by a base32 random half; the
+    // secret is base32 only. Neither alphabet may contain the `_` separator, or the key
+    // cannot be parsed back — base64url did, and one key in three was unparseable.
+    expect(key).toMatch(/^gos_live_[0-9a-f]{32}[A-Z2-7]+_[A-Z2-7]+$/);
+  });
+
+  /**
+   * The prefix names the tenant, which is what lets authentication open a scope before any
+   * context exists (ADR-0018). It is a routing hint and authorises nothing — but it must be
+   * recoverable exactly, or a valid key would be routed to the wrong tenant and refused.
+   */
+  it('carries its organization in the prefix, recoverably', () => {
+    const issued = issueApiKey('live', ORG);
+    expect(organizationIdFromApiKeyPrefix(issued.prefix)).toBe(ORG);
+    expect(organizationIdFromApiKeyPrefix(issueApiKey('live', OTHER_ORG).prefix)).toBe(OTHER_ORG);
+  });
+
+  it('refuses to issue a key for a malformed organization id', () => {
+    for (const bad of ['', 'not-a-uuid', '01998000-0000-7000-8000-00000000000']) {
+      expect(() => issueApiKey('live', bad), bad).toThrow(/well-formed organization id/);
+    }
+  });
+
+  it('returns undefined for a prefix that names no organization', () => {
+    for (const bad of ['', 'ABCDEFGH', 'z'.repeat(32), '0'.repeat(31), 'F'.repeat(32)]) {
+      expect(organizationIdFromApiKeyPrefix(bad), bad).toBeUndefined();
+    }
   });
 
   it('round-trips through the parser', () => {
-    const issued = issueApiKey();
+    const issued = issueApiKey('live', ORG);
     const parsed = parseApiKey(issued.key);
     expect(parsed).toEqual({
       environment: 'live',
@@ -83,7 +113,7 @@ describe('API keys', () => {
   });
 
   it('supports a test environment distinct from live', () => {
-    expect(parseApiKey(issueApiKey('test').key)?.environment).toBe('test');
+    expect(parseApiKey(issueApiKey('test', ORG).key)?.environment).toBe('test');
   });
 
   /**
@@ -107,7 +137,7 @@ describe('API keys', () => {
   });
 
   it('gives each key an unpredictable prefix and secret', () => {
-    const keys = Array.from({ length: 500 }, () => issueApiKey());
+    const keys = Array.from({ length: 500 }, () => issueApiKey('live', ORG));
     expect(new Set(keys.map((k) => k.prefix)).size).toBe(500);
     expect(new Set(keys.map((k) => k.secret)).size).toBe(500);
   });
@@ -119,11 +149,61 @@ describe('API keys', () => {
    */
   it('EVERY issued key round-trips, across a large sample', () => {
     for (let i = 0; i < 2000; i++) {
-      const issued = issueApiKey();
+      const issued = issueApiKey('live', ORG);
       const parsed = parseApiKey(issued.key);
       expect(parsed?.prefix, issued.key).toBe(issued.prefix);
       expect(parsed?.secret, issued.key).toBe(issued.secret);
+      expect(organizationIdFromApiKeyPrefix(issued.prefix), issued.key).toBe(ORG);
     }
+  });
+});
+
+/**
+ * A tenant token names the organization it belongs to so that a credential presented before
+ * any tenant context exists can say which tenant to open a scope for (ADR-0018). The hint
+ * authorises nothing — but the HASH must cover it, so that a secret lifted from one
+ * organization's token cannot be replayed against another by rewriting the segment.
+ */
+describe('tenant-scoped tokens', () => {
+  it('is `<organizationId>.<secret>` with 256 bits in the secret half', () => {
+    const { token } = issueTenantToken(ORG);
+    const parsed = parseTenantToken(token);
+    expect(parsed?.organizationId).toBe(ORG);
+    expect(parsed?.secret).toHaveLength(43);
+    expect(Buffer.from(parsed?.secret ?? '', 'base64url')).toHaveLength(32);
+  });
+
+  it('hashes the WHOLE token, so the same secret under another organization differs', () => {
+    const { token, tokenHash } = issueTenantToken(ORG);
+    const secret = token.slice(token.indexOf('.') + 1);
+    expect(tokenHash).toEqual(hashToken(token));
+    // The rewritten token — the cross-tenant replay — hashes to something else entirely.
+    expect(hashToken(`${OTHER_ORG}.${secret}`).equals(tokenHash)).toBe(false);
+    // And the bare secret is not the stored value either.
+    expect(hashToken(secret).equals(tokenHash)).toBe(false);
+  });
+
+  it('refuses to issue for a malformed organization id', () => {
+    for (const bad of ['', 'not-a-uuid', ORG.slice(0, -1)]) {
+      expect(() => issueTenantToken(bad), bad).toThrow(/well-formed organization id/);
+    }
+  });
+
+  it('returns undefined for anything malformed, never throws', () => {
+    for (const bad of ['', '.', `${ORG}.`, `.secret`, 'no-dot-at-all', `not-a-uuid.secret`]) {
+      expect(parseTenantToken(bad), JSON.stringify(bad)).toBeUndefined();
+    }
+  });
+
+  it('keeps a secret containing dots intact, so only the FIRST dot separates', () => {
+    // base64url has no `.`, but a forgiving parser that split on every dot would truncate a
+    // secret and silently refuse a valid token. Splitting at the first is what is asserted.
+    expect(parseTenantToken(`${ORG}.aaa.bbb`)?.secret).toBe('aaa.bbb');
+  });
+
+  it('gives each token a distinct secret', () => {
+    const tokens = Array.from({ length: 500 }, () => issueTenantToken(ORG).token);
+    expect(new Set(tokens).size).toBe(500);
   });
 });
 

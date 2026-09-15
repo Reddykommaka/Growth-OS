@@ -54,7 +54,7 @@ without a foreign key* (a cross-module reference, resolved at the application la
 | `role_permissions` | `role_id →roles`, `permission` | Permission literals from the catalogue |
 | `role_assignments` | `organization_member_id`, `role_id`, `team_id NULL`, `workspace_id NULL` | Scope is org-wide, team-wide, or a single workspace. `CHECK` enforces at most one of `team_id`/`workspace_id` |
 | `resource_grants` | `subject_type/id`, `resource_type`, `resource_id`, `permission` | Fine-grained per-resource sharing |
-| `invitations` | `organization_id`, `email`, `role_id`, `token_hash`, `expires_at`, `accepted_at` | |
+| `invitations` | `organization_id`, `email`, `role_id`, `token_hash`, `expires_at`, `accepted_at` | `token_hash` is `sha256` of `<organizationId>.<secret>` (ADR-0018) |
 | `api_keys` | `organization_id`, `name`, `prefix`, `key_hash`, `scopes text[]`, `last_used_at`, `expires_at` | Secret shown once; only the hash persists |
 | `audit_events` | `organization_id`, `actor_type/id`, `action`, `resource_type/id`, `before/after jsonb`, `ip`, `request_id`, `prev_hash`, `hash` | Append-only, hash-chained, monthly partitions |
 | `outbox_events` | `id`, `organization_id`, `event_name`, `event_version`, `payload jsonb`, `occurred_at`, `published_at NULL`, `attempts` | The transactional event spine |

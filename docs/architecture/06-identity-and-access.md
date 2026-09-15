@@ -55,7 +55,13 @@ JWTs are used only for short-lived (≤5 min), narrowly-audienced service-to-ser
   adapter (likely WorkOS) is plugged in later.
 - **Machine access:** API keys (`gos_live_<prefix>_<secret>`), Argon2-hashed, scoped,
   expiring, per-organization, with `last_used_at` and per-key rate limits. Displayed once.
-  Detectable by GitHub secret scanning by virtue of the prefix format.
+  Detectable by GitHub secret scanning by virtue of the prefix format. The `prefix` is the
+  organization's hex digits followed by a random half, so a key names the tenant it belongs
+  to — see ADR-0018 for why a credential presented before any tenant context exists must,
+  and why that hint authorises nothing.
+- **Invitation tokens** take the same shape for the same reason: `<organizationId>.<secret>`,
+  with `sha256` of the whole token stored. The organization the invitation grants access to
+  still comes from the stored row, never from the request (ADR-0018).
 
 ### Impersonation
 

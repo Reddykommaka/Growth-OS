@@ -41,18 +41,23 @@ export {
   startSession,
 } from './sessions.js';
 export {
-  API_KEY_PREFIX_BYTES,
+  API_KEY_PREFIX_RANDOM_BYTES,
   API_KEY_SECRET_BYTES,
   hashRecoveryCode,
   hashToken,
   type IssuedApiKey,
+  type IssuedTenantToken,
   type IssuedToken,
   issueApiKey,
   issueRecoveryCode,
+  issueTenantToken,
   issueToken,
   normaliseRecoveryCode,
+  organizationIdFromApiKeyPrefix,
   type ParsedApiKey,
+  type ParsedTenantToken,
   parseApiKey,
+  parseTenantToken,
   tokenHashEquals,
 } from './tokens.js';
 export {

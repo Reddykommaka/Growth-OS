@@ -138,50 +138,72 @@ export async function withTenant<T>(
 }
 
 /**
- * Opens a transaction scoped to an organization but with NO workspace set.
+ * Opens a transaction scoped to ONE organization, with no workspace set and no actor.
  *
- * Exists for exactly one caller: the actor-context resolver, which has a genuine
- * chicken-and-egg problem. The accessible-workspace set is computed by reading
- * organization_members, teams, workspaces and role_assignments — all of which are
- * tenant-scoped and fail closed without `app.organization_id`. Resolution cannot run inside
- * `withTenant`, because the value `withTenant` needs is the one resolution produces.
+ * Three callers, each with a genuine bootstrap problem — a value they must read in order to
+ * build the very context that would let them read it:
+ *
+ *   1. the actor-context resolver. The accessible-workspace set is computed by reading the
+ *      team→workspace topology, so resolution cannot run inside a policy that demands the
+ *      set (migration 0007);
+ *   2. invitation acceptance. The accepter is not yet a member of anything, so the tenant
+ *      comes from the token they present;
+ *   3. API-key authentication. Same shape: the tenant comes from the key.
  *
  * WHY THIS IS NOT A BYPASS. Setting `app.organization_id` is not an authorization grant. It
- * narrows what the connection can see to ONE organization; it does not establish that the
- * actor belongs to it. The membership row does that, and the resolver's first query looks
- * for it and returns nothing when it is absent. An actor passing an organization id they
- * have no membership in gets a context scoped to that organization and immediately finds no
- * membership — so nothing is read and no context is produced.
+ * NARROWS what the connection can see to one organization; it does not establish that
+ * anybody belongs to it. RLS is fully in force throughout — the connection is
+ * growth_os_app, NOBYPASSRLS — so every statement is still checked against that one tenant,
+ * and naming an organization you have no claim on simply means the row you were looking for
+ * is not there. Each caller's first query is the one that decides: a membership row for the
+ * resolver, a token hash for acceptance, a key prefix for authentication. None of the three
+ * can be satisfied by choosing the organization.
  *
- * The workspace set is deliberately left EMPTY here. Workspace-scoped tables (those
- * carrying workspace_id) therefore return nothing inside this transaction, which is correct:
- * resolution reads tenancy topology, never tenant content.
+ * `workspaceScope` is stated by the caller and is the real capability being claimed:
  *
- * Kept in this module rather than in the resolver so that every write of an `app.*` setting
+ *   - 'set' with the empty set — workspace-scoped tables return NOTHING. This is what the
+ *     credential-resolution callers take; they read one row keyed by a secret and must not
+ *     be able to see tenant content at all.
+ *   - 'all' — organization-wide reach across workspace topology, which ONLY the resolver
+ *     needs and which an architecture test confines to it. This is the setting that would
+ *     turn a bootstrap primitive into a way to see the whole tenant, so it is asked for
+ *     explicitly at the one call site entitled to it rather than supplied as a default.
+ *
+ * `reason` is required for the same purpose as `withoutTenantContext`'s: every call site
+ * states, in the call, why it is outside the normal path.
+ *
+ * Kept in this module rather than in its callers so that every write of an `app.*` setting
  * remains in one reviewable file, which the architecture test enforces.
  */
+export interface OrganizationScopeOptions {
+  /** Why this call is outside the normal, actor-resolved path. */
+  readonly reason: string;
+  /** The capability being claimed. 'all' is confined to the actor resolver by a test. */
+  readonly workspaceScope: 'set' | 'all';
+}
+
 export async function withOrganizationScope<T>(
   pool: Pool,
   organizationId: string,
+  options: OrganizationScopeOptions,
   body: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
+  if (options.reason.trim().length === 0) {
+    throw new InternalError('An organization-scoped transaction must state its reason.');
+  }
   assertValidIds({ organizationId, workspaceIds: [] });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query('SELECT set_config($1, $2, true)', ['app.organization_id', organizationId]);
-    // Explicitly empty, not unset: an actor mid-resolution has no resolved set yet, and
+    // Explicitly empty, not unset: a caller mid-bootstrap has no resolved set yet, and
     // leaving it unset would rely on the helper's COALESCE rather than saying so.
     await client.query('SELECT set_config($1, $2, true)', ['app.workspace_ids', '{}']);
-    // Organization-wide READ of workspace topology, and the reason this function exists.
-    // The resolver must see which team owns which workspace in order to compute the set at
-    // all; a policy demanding the set would make the set underivable (migration 0007).
-    //
-    // This is the only place in the system that claims this scope without an actor having
-    // earned it, which is why it is one function with one caller, both pinned by an
-    // architecture test. It reads ids and team ids and returns a computed set — never rows.
-    await client.query('SELECT set_config($1, $2, true)', ['app.workspace_scope', 'all']);
+    await client.query('SELECT set_config($1, $2, true)', [
+      'app.workspace_scope',
+      options.workspaceScope,
+    ]);
     const value = await body(client);
     await client.query('COMMIT');
     return value;

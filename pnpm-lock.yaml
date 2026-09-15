@@ -239,6 +239,9 @@ importers:
 
   packages/modules/organization:
     dependencies:
+      '@growth-os/authn':
+        specifier: workspace:*
+        version: link:../../platform/authn
       '@growth-os/authz':
         specifier: workspace:*
         version: link:../../platform/authz

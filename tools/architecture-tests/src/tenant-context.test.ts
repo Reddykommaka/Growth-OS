@@ -12,7 +12,7 @@
  * sanctioned implementation is @growth-os/db's withTenant.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -30,7 +30,15 @@ function sourceFiles(): string[] {
     ['ls-files', '--cached', '--others', '--exclude-standard', 'apps', 'packages'],
     { cwd: REPO, encoding: 'utf8' },
   );
-  return out.split('\n').filter((f) => f.endsWith('.ts') || f.endsWith('.tsx'));
+  return (
+    out
+      .split('\n')
+      .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx'))
+      // `--cached` lists index entries, which during a rename still include the deleted
+      // path until the deletion is staged. A file that is not on disk has no content to
+      // violate anything; reading it anyway crashed the whole suite mid-rename.
+      .filter((f) => existsSync(resolve(REPO, f)))
+  );
 }
 
 /** The one APPLICATION module permitted to write tenant settings. */
@@ -102,20 +110,25 @@ describe('tenant context is only ever transaction-scoped', () => {
 });
 
 /**
- * `withOrganizationScope` is the one function that claims organization-wide workspace reach
- * without an actor having earned it (migration 0007). It exists because the actor-context
- * resolver has a genuine bootstrap problem: the accessible set is computed by reading the
- * team→workspace topology, so resolution cannot run inside a policy that demands the set.
+ * `withOrganizationScope` claims organization-wide reach without an actor having earned it
+ * (migration 0007). It exists because three paths have a genuine bootstrap problem — a value
+ * they must read in order to build the very context that would let them read it.
  *
- * Its safety rests entirely on being narrow — one function, one caller, reading ids and
- * team ids and returning a computed set rather than rows. That is a property of the call
- * graph, so it is asserted against the call graph. A second caller is how a bootstrap
+ * Its safety rests on staying narrow, and narrowness is a property of the CALL GRAPH, so it
+ * is asserted against the call graph. An unnoticed fourth caller is how a bootstrap
  * primitive quietly becomes a way to see the whole tenant.
+ *
+ * Two separate things are pinned here, because they are different sizes of mistake:
+ *   - who may open an organization scope at all;
+ *   - who may open one with 'all' workspace reach, which is the setting that actually
+ *     exposes the tenant's workspaces.
  */
-describe('organization-wide scope is claimed in exactly one place', () => {
+describe('organization-wide scope is claimed in exactly the sanctioned places', () => {
   const files = sourceFiles();
   const DEFINITION = 'packages/platform/db/src/tenant-context.ts';
   const RESOLVER = 'packages/modules/organization/src/infrastructure/actor-resolver.ts';
+  /** The credential-resolution unit of work: invitation acceptance and API-key auth. */
+  const SCOPE_FACTORY = 'packages/modules/organization/src/infrastructure/tenant-scope.ts';
 
   it('is defined only in the unit of work', () => {
     const definers = files.filter(
@@ -128,14 +141,52 @@ describe('organization-wide scope is claimed in exactly one place', () => {
     expect(definers).toEqual([]);
   });
 
-  it('is called only by the actor-context resolver', () => {
+  it('is called only by the actor resolver and the credential scope factory', () => {
     const callers = files.filter((file) => {
       if (file === DEFINITION) return false;
       // Tests may drive it directly; they are not an application code path.
       if (/\.test\.tsx?$/.test(file)) return false;
       return /\bwithOrganizationScope\s*\(/.test(readFileSync(resolve(REPO, file), 'utf8'));
     });
-    expect(callers).toEqual([RESOLVER]);
+    expect(callers.sort()).toEqual([RESOLVER, SCOPE_FACTORY].sort());
+  });
+
+  /**
+   * The narrower rule, and the one that matters most. 'all' is what lets a transaction see
+   * every workspace in a tenant. Only two call sites may ask for it, and both do so in
+   * order to COMPUTE an accessible-workspace set — which is underivable under a policy that
+   * demands the set.
+   *
+   * Matched on the literal because that is what reaches the database. A caller that built
+   * the value indirectly would evade this, which is why the scope is a literal at both
+   * sanctioned sites and why `withOrganizationScope` takes it as a required argument rather
+   * than defaulting.
+   */
+  it("only those two ask for 'all' workspace reach", () => {
+    const claimsAll = /workspaceScope:\s*'all'/;
+    const offenders = files.filter((file) => {
+      if (file === DEFINITION) return false;
+      if (/\.test\.tsx?$/.test(file)) return false;
+      return claimsAll.test(readFileSync(resolve(REPO, file), 'utf8'));
+    });
+    expect(offenders.sort()).toEqual([RESOLVER, SCOPE_FACTORY].sort());
+  });
+
+  it('both sanctioned sites really do claim it, so the rule is not passing by absence', () => {
+    for (const file of [RESOLVER, SCOPE_FACTORY]) {
+      expect(readFileSync(resolve(REPO, file), 'utf8'), file).toMatch(/workspaceScope:\s*'all'/);
+    }
+  });
+
+  /**
+   * And the credential path's OTHER method must stay narrow: invitation acceptance opens a
+   * scope with no workspace reach at all. If that ever became 'all' the factory would still
+   * pass the tests above, so the empty-reach method is pinned separately.
+   */
+  it('the credential factory still offers a no-workspace-reach scope', () => {
+    const text = readFileSync(resolve(REPO, SCOPE_FACTORY), 'utf8');
+    expect(text).toMatch(/withoutWorkspaceReach/);
+    expect(text).toMatch(/workspaceScope:\s*'set'/);
   });
 
   it('nothing else writes the workspace scope setting', () => {

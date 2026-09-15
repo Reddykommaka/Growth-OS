@@ -16,14 +16,16 @@
   "scripts": {
     "build": "tsc --build",
     "clean": "tsc --build --clean && rm -rf dist",
-    "test:integration": "vitest run"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@growth-os/types": "workspace:*",
     "@growth-os/errors": "workspace:*",
     "@growth-os/authz": "workspace:*",
     "pg": "8.16.3",
-    "@growth-os/db": "workspace:*"
+    "@growth-os/db": "workspace:*",
+    "@growth-os/authn": "workspace:*"
   },
   "devDependencies": {
     "vitest": "5.0.0",
