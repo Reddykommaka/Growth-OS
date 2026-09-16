@@ -8,13 +8,17 @@
  * later file from quietly passing one in and proving less than it appears to.
  */
 
+import type { ActorContext } from '@growth-os/authz';
 import { withTenant } from '@growth-os/db';
+import type { PoolClient } from 'pg';
 import type { InvitationDelivery } from '../application/index.js';
 import {
   type AcceptDependencies,
   acceptInvitation,
   createInvitation,
   type InvitationDependencies,
+  resendInvitation,
+  revokeInvitation,
 } from '../application/index.js';
 import {
   createInvitationRepository,
@@ -48,9 +52,102 @@ export interface InvitationHarness {
     userId: string,
     userEmail: string,
   ): Promise<Awaited<ReturnType<typeof acceptInvitation>>>;
+  /** Resend, in the actor's own tenant context, exactly as production would run it. */
+  resend(
+    userId: string,
+    invitationId: string,
+  ): Promise<Awaited<ReturnType<typeof resendInvitation>>>;
+  /** Revoke, likewise. */
+  revoke(userId: string, invitationId: string): Promise<boolean>;
+  /**
+   * Two resends that GENUINELY overlap: both read the row before either writes.
+   *
+   * `Promise.all` over two independent transactions does not reliably produce that
+   * interleaving — the first often commits before the second reads, which is two sequential
+   * resends, and two sequential resends are both supposed to succeed. The race only exists
+   * when both callers decided the invitation was pending from the SAME state, so the barrier
+   * holds each one at that point until the other has reached it.
+   *
+   * Everything else is real: two pool connections, two transactions, the production service,
+   * and the conditional UPDATE settling it in PostgreSQL.
+   */
+  raceResends(
+    userId: string,
+    invitationId: string,
+  ): Promise<Awaited<ReturnType<typeof resendInvitation>>[]>;
+  /** Runs `createInvitation` in the actor's context with dependencies overridden. */
+  inviteUsing(
+    userId: string,
+    input: Omit<Parameters<typeof createInvitation>[1], 'actor'>,
+    overrides: Partial<InvitationDependencies>,
+  ): Promise<Awaited<ReturnType<typeof createInvitation>>>;
+}
+
+type InContext = <T>(
+  userId: string,
+  body: (client: PoolClient, ctx: ActorContext) => Promise<T>,
+) => Promise<T>;
+
+/** Releases only once `count` participants have arrived. */
+function barrier(count: number) {
+  let arrived = 0;
+  let release: () => void = () => undefined;
+  const open = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return async () => {
+    arrived += 1;
+    if (arrived >= count) release();
+    await open;
+  };
+}
+
+/**
+ * The two-transaction resend race, held apart from the factory so each stays readable.
+ *
+ * `findById` is wrapped only to place the barrier at the moment both callers have decided
+ * the invitation is pending. Everything that decides the outcome — the transactions, the
+ * conditional UPDATE, the row lock — is the production path against real PostgreSQL.
+ */
+async function raceTwoResends(
+  inContext: InContext,
+  bind: (client: PoolClient) => InvitationDependencies,
+  userId: string,
+  invitationId: string,
+): Promise<Awaited<ReturnType<typeof resendInvitation>>[]> {
+  const bothHaveRead = barrier(2);
+  const one = async () =>
+    await inContext(userId, async (client, ctx) => {
+      const bound = bind(client);
+      const repo = bound.invitations;
+      return await resendInvitation(
+        {
+          ...bound,
+          invitations: {
+            ...repo,
+            findById: async (...args) => {
+              const found = await repo.findById(...args);
+              await bothHaveRead();
+              return found;
+            },
+          },
+        },
+        ctx,
+        invitationId,
+      );
+    });
+  return await Promise.all([one(), one()]);
 }
 
 export function createInvitationHarness(fx: AgencyFixture, recorder: Recorder): InvitationHarness {
+  /** Repositories bound to one transaction — the shape every actor-driven call needs. */
+  const bind = (client: PoolClient): InvitationDependencies => ({
+    ...deps,
+    invitations: createInvitationRepository(client),
+    roles: createRoleReader(client),
+    organizations: createOrganizationReader(client),
+  });
+
   const delivered: InvitationDelivery[] = [];
   let failWith: Error | undefined;
 
@@ -79,6 +176,21 @@ export function createInvitationHarness(fx: AgencyFixture, recorder: Recorder): 
     clock: recorder.clock,
   };
 
+  /** Runs a body in the actor's own tenant context, as production would. */
+  const inContext: InContext = async (userId, body) => {
+    const ctx = await fx.actorFor(userId);
+    return await withTenant(
+      fx.db.pool,
+      {
+        organizationId: fx.agencyOrg,
+        userId,
+        workspaceIds: ctx.accessibleWorkspaceIds,
+        workspaceScope: ctx.workspaceScope,
+      },
+      async (tx) => await body(tx.client, ctx),
+    );
+  };
+
   return {
     deps,
     acceptDeps,
@@ -87,29 +199,35 @@ export function createInvitationHarness(fx: AgencyFixture, recorder: Recorder): 
       failWith = error;
     },
     async invite(userId, input) {
-      const ctx = await fx.actorFor(userId);
-      return await withTenant(
-        fx.db.pool,
-        {
-          organizationId: fx.agencyOrg,
-          userId,
-          workspaceIds: ctx.accessibleWorkspaceIds,
-          workspaceScope: ctx.workspaceScope,
-        },
-        async (tx) =>
-          await createInvitation(
-            {
-              ...deps,
-              invitations: createInvitationRepository(tx.client),
-              roles: createRoleReader(tx.client),
-              organizations: createOrganizationReader(tx.client),
-            },
-            { ...input, actor: ctx },
-          ),
+      return await inContext(
+        userId,
+        async (client, ctx) => await createInvitation(bind(client), { ...input, actor: ctx }),
       );
     },
     async accept(token, userId, userEmail) {
       return await acceptInvitation(acceptDeps, { token, userId, userEmail });
+    },
+    async resend(userId, invitationId) {
+      return await inContext(
+        userId,
+        async (client, ctx) => await resendInvitation(bind(client), ctx, invitationId),
+      );
+    },
+    async revoke(userId, invitationId) {
+      return await inContext(
+        userId,
+        async (client, ctx) => await revokeInvitation(bind(client), ctx, invitationId),
+      );
+    },
+    async inviteUsing(userId, input, overrides) {
+      return await inContext(
+        userId,
+        async (client, ctx) =>
+          await createInvitation({ ...bind(client), ...overrides }, { ...input, actor: ctx }),
+      );
+    },
+    async raceResends(userId, invitationId) {
+      return await raceTwoResends(inContext, bind, userId, invitationId);
     },
   };
 }

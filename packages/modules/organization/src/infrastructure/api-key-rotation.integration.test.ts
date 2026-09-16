@@ -40,6 +40,24 @@ afterAll(async () => {
   await stopSharedCluster();
 });
 
+/** Rotates in the actor's own tenant context, as production would. */
+async function rotate(
+  ctx: Awaited<ReturnType<AgencyFixture['actorFor']>>,
+  keyId: string,
+  graceMs: number,
+) {
+  return await h.asOwner(fx.ownerUser, async (d) => await rotateApiKey(d, ctx, keyId, graceMs));
+}
+
+/** The stamp as the database holds it, read past RLS so nothing is hidden. */
+async function revokedAt(keyId: string): Promise<number | undefined> {
+  const r = await fx.admin.query<{ revoked_at: Date | null }>(
+    'SELECT revoked_at FROM api_keys WHERE id = $1',
+    [keyId],
+  );
+  return r.rows[0]?.revoked_at?.getTime();
+}
+
 beforeEach(async () => {
   await fx.admin.query('DELETE FROM api_keys');
   recorder.reset();
@@ -120,30 +138,51 @@ describe('rotation', () => {
  */
 describe('rotation and revocation races', () => {
   /**
-   * Two concurrent rotations of one key. Whatever the interleaving, the FIRST revocation
-   * time must survive: overwriting it rewrites history for an incident investigation.
+   * Revocation time is WRITE-ONCE. `revoke` uses `COALESCE(revoked_at, $3)`, so the first
+   * write survives every later one — overwriting it would rewrite history for an incident
+   * investigation, which is the one thing that record is for.
+   *
+   * Pinned deterministically, because the property is about ordering and a concurrent test
+   * cannot say which write went first. A long grace goes in first precisely so that a naive
+   * "keep the earliest time" implementation would fail here.
    */
-  it('concurrent rotations keep the first revocation time', async () => {
+  it('a later rotation cannot rewrite an earlier revocation time', async () => {
     const original = await mint(fx.ownerUser, { name: 'CI', scopes: ['social.post:read'] });
     const ctx = await fx.actorFor(fx.ownerUser);
-    const rotate = (graceMs: number) =>
-      withTenant(
-        fx.db.pool,
-        {
-          organizationId: fx.agencyOrg,
-          userId: fx.ownerUser,
-          workspaceIds: ctx.accessibleWorkspaceIds,
-        },
-        async (tx) => await rotateApiKey(h.deps(tx.client), ctx, original.id, graceMs),
-      );
 
-    const [a, b] = await Promise.all([rotate(0), rotate(600_000)]);
-    const row = await fx.admin.query<{ revoked_at: Date }>(
-      'SELECT revoked_at FROM api_keys WHERE id = $1',
-      [original.id],
-    );
-    const stored = row.rows[0]?.revoked_at.getTime();
-    expect(stored).toBe(Math.min(a.previousRevokedAt.getTime(), b.previousRevokedAt.getTime()));
+    const first = await rotate(ctx, original.id, 600_000);
+    const stored = await revokedAt(original.id);
+    expect(stored).toBe(first.previousRevokedAt.getTime());
+
+    // A second rotation, and a bare revocation, both leave the original stamp alone.
+    await rotate(ctx, original.id, 0);
+    expect(await revokedAt(original.id)).toBe(stored);
+    await h.asOwner(fx.ownerUser, async (d) => await revokeApiKey(d, ctx, original.id));
+    expect(await revokedAt(original.id)).toBe(stored);
+  });
+
+  /**
+   * The same guarantee under genuine concurrency, where neither caller can claim to have
+   * gone first. The stamp must be ONE of the two candidates — never null, never a third
+   * value, and never changed afterwards.
+   */
+  it('concurrent rotations settle on one revocation time and keep it', async () => {
+    const original = await mint(fx.ownerUser, { name: 'CI', scopes: ['social.post:read'] });
+    const ctx = await fx.actorFor(fx.ownerUser);
+
+    const [a, b] = await Promise.all([
+      rotate(ctx, original.id, 0),
+      rotate(ctx, original.id, 600_000),
+    ]);
+
+    const stored = await revokedAt(original.id);
+    expect(stored).toBeDefined();
+    expect([a.previousRevokedAt.getTime(), b.previousRevokedAt.getTime()]).toContain(stored);
+
+    // Settled: a further revocation does not move it.
+    await h.asOwner(fx.ownerUser, async (d) => await revokeApiKey(d, ctx, original.id));
+    expect(await revokedAt(original.id)).toBe(stored);
+
     // Both replacements exist and both authenticate; rotation is not a lock.
     expect((await authenticate(a.created.key)).ok).toBe(true);
     expect((await authenticate(b.created.key)).ok).toBe(true);

@@ -41,11 +41,12 @@ interface InviteRow {
   expires_at: Date;
   accepted_at: Date | null;
   revoked_at: Date | null;
+  token_hash: Buffer;
 }
 
 const INVITE_COLUMNS =
   'id, organization_id, email, role_id, team_id, workspace_id, member_type, invited_by, ' +
-  'expires_at, accepted_at, revoked_at';
+  'expires_at, accepted_at, revoked_at, token_hash';
 
 function toInvitation(row: InviteRow): InvitationRow {
   return {
@@ -60,6 +61,7 @@ function toInvitation(row: InviteRow): InvitationRow {
     expiresAt: row.expires_at,
     acceptedAt: row.accepted_at,
     revokedAt: row.revoked_at,
+    tokenHash: row.token_hash,
   };
 }
 
@@ -150,12 +152,31 @@ export function createInvitationRepository(db: Queryable): InvitationRepository 
       return (r.rowCount ?? 0) === 1;
     },
 
-    /** Replaces the token, so a resend leaves exactly one live link rather than several. */
-    async rotateToken(id, tokenHash, expiresAt, at) {
-      await db.query(
-        `UPDATE invitations SET token_hash = $2, expires_at = $3, updated_at = $4 WHERE id = $1`,
-        [id, tokenHash, expiresAt, at],
+    /**
+     * Replaces the token, so a resend leaves exactly one live link rather than several.
+     *
+     * A COMPARE-AND-SET, not a blind write, and for the same reason `consume` is one. The
+     * caller read the row to decide the invitation was still pending, and three things can
+     * happen between that read and this write:
+     *
+     *   - another resend rotates the token first. Both writers would otherwise succeed and
+     *     both would mail a link, one of which is already dead;
+     *   - the invitation is ACCEPTED. A blind write would mint a fresh token for a consumed
+     *     invitation and mail a link that can never work;
+     *   - the invitation is REVOKED. A blind write would give a revoked invitation a live
+     *     token hash and a fresh expiry — a revocation that did not fully take.
+     *
+     * Predicating on the previous hash makes the first impossible; the NULL checks make the
+     * other two. The loser is told, and mails nothing.
+     */
+    async rotateToken(id, previousTokenHash, tokenHash, expiresAt, at) {
+      const r = await db.query(
+        `UPDATE invitations SET token_hash = $3, expires_at = $4, updated_at = $5
+          WHERE id = $1 AND token_hash = $2
+            AND accepted_at IS NULL AND revoked_at IS NULL`,
+        [id, previousTokenHash, tokenHash, expiresAt, at],
       );
+      return (r.rowCount ?? 0) === 1;
     },
 
     async listPending(organizationId) {

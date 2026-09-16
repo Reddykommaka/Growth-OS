@@ -63,6 +63,14 @@ export interface InvitationRow {
   readonly expiresAt: Date;
   readonly acceptedAt: Date | null;
   readonly revokedAt: Date | null;
+  /**
+   * The hash of the CURRENT token.
+   *
+   * Carried so a resend can pin its write to the token it read, rather than blindly
+   * overwriting whatever is there now. Never the token itself — that exists only in the
+   * moment it is issued.
+   */
+  readonly tokenHash: Buffer;
 }
 
 export interface InvitationRepository {
@@ -93,7 +101,18 @@ export interface InvitationRepository {
   /** Marks accepted, returning false if it already was. Single-use, settled by the write. */
   consume(id: string, at: Date): Promise<boolean>;
   revoke(organizationId: string, id: string, at: Date): Promise<boolean>;
-  rotateToken(id: string, tokenHash: Buffer, expiresAt: Date, at: Date): Promise<void>;
+  /**
+   * Replaces the token, but ONLY if the row still carries `previousTokenHash` and is still
+   * pending. Returns false when it does not — a concurrent resend, acceptance or revocation
+   * won, and this caller must not mail the token it minted.
+   */
+  rotateToken(
+    id: string,
+    previousTokenHash: Buffer,
+    tokenHash: Buffer,
+    expiresAt: Date,
+    at: Date,
+  ): Promise<boolean>;
   listPending(organizationId: string): Promise<InvitationRow[]>;
 }
 

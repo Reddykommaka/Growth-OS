@@ -254,7 +254,12 @@ export async function resendInvitation(
   const { token, tokenHash } = issueTenantToken(actor.organizationId);
   const expiresAt = new Date(now.getTime() + INVITATION_TTL_MS);
   const role = await deps.roles.findById(row.roleId);
-  await deps.invitations.rotateToken(row.id, tokenHash, expiresAt, now);
+
+  // Pinned to the token that was read. A concurrent resend, acceptance or revocation makes
+  // this a no-op, and the caller is told rather than mailing a link that is already dead.
+  if (!(await deps.invitations.rotateToken(row.id, row.tokenHash, tokenHash, expiresAt, now))) {
+    return undefined;
+  }
 
   await notify(deps, {
     invitationId: row.id,
