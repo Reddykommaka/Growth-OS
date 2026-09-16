@@ -168,3 +168,76 @@ Two consequences worth recording:
 - Invitation delivery is a contract with no production implementation; `platform/notifications`
   is still pending, and the production notifier should enqueue through the outbox (ADR-0007)
   rather than send inline.
+
+## 8. Work items 1.10–1.11 — the identity gate, and a resend that was not settled
+
+### The team-membership gap (1.10)
+
+The identity authorization suite covered actors holding a workspace role *directly*; its
+fixture said so in a comment — *"Not a member of pod A, not org-scoped."* So no authenticated
+user in that suite reached a workspace through **team membership**, which is the one path the
+three-level model exists for and the one that behaves differently.
+
+Teams are deliberately absent from the RLS predicate (05 §3, 06 §3). A team member holds no
+workspace-scoped role at all; their accessible set is *computed* by expanding
+team → workspaces-owned and team → workspaces-granted, and the result is then handed to the
+database as `app.workspace_ids`. Every other authenticated actor is authorised by a row that
+either exists or does not. This one is authorised by a derivation, and a derivation fails in
+ways a lookup cannot:
+
+- **over-inclusion** — a set wider than the team's reach, which the database then faithfully
+  honours, because `app.workspace_ids` *is* the predicate;
+- **staleness** — access surviving a removal, if the set were computed once and cached
+  against the session rather than re-derived.
+
+Both are now asserted from real authenticated sessions, including that a member of no team
+derives an empty set (the `member` role is organization-scoped, which is the exact shape that
+once handed a plain member every workspace in the tenant — work item 1.5).
+
+The suite was verified against the bugs it exists for rather than merely observed to pass:
+granting team members every organization workspace fails 4 of 10; dropping
+`team_workspace_access` from the expansion fails 4 of 10.
+
+### Resend was a read-then-write (1.11)
+
+`rotateToken` was an unconditional `UPDATE ... WHERE id = $1`, and `resendInvitation` read the
+row, decided it was pending, and then wrote. That is the pattern this codebase settles
+everywhere else with a conditional `UPDATE`, and three failures followed — none of them
+visible in a sequential test:
+
+1. **Two operators resending at once.** Both writes succeeded and the last writer's hash
+   survived, so both were handed a token they believed was live. One invitee received a link
+   that was dead before it was sent, and nothing indicated which.
+2. **A resend racing an acceptance.** The pending check is a read. An acceptance landing
+   between it and the write minted a fresh token for an already-consumed invitation.
+3. **A resend racing a revocation** — the security-relevant one. A blind write gave a revoked
+   invitation a live token hash and a fresh expiry: a revocation that did not fully take, on a
+   row an operator had already been told was dead.
+
+`rotateToken` is now a compare-and-set pinned to the hash the caller read *and* to the row
+still being pending. The loser is told, and notifies nobody.
+
+### Two tests that were flaky rather than wrong-but-stable
+
+Both asserted **which writer wins a race** instead of the invariant that holds either way.
+This is worth recording because it is a failure mode that looks like a passing test:
+
+- The new simultaneous revoke/resend case asserted "not both succeed" — but a resend landing
+  first, followed by a revoke, is a legitimate sequence in which both do. It now asserts the
+  end state (if the row is revoked, no token ever issued for it is redeemable), with both
+  orderings *also* pinned deterministically so neither branch can quietly stop being covered.
+- `concurrent rotations keep the first revocation time` asserted the **minimum** of the two
+  candidate stamps, assuming the zero-grace rotation wrote first. `COALESCE(revoked_at, $3)`
+  guarantees the *first writer's* stamp survives, which under concurrency may be either. Split
+  into a deterministic write-once test — long grace first, so a naive "keep the earliest"
+  implementation fails it — and a concurrency test asserting the stamp is one of the two
+  candidates and never moves afterwards.
+
+Both surfaced only by running the gate repeatedly. Each affected suite was then run six times
+and the integration gate three times, with no flake.
+
+### Still open after 1.11
+
+- Test files and `src/__testing__/` remain excluded from `tsc --build`, so **no test file is
+  typechecked**. Unchanged from §7.
+- Invitation delivery is still a contract with no production implementation.
