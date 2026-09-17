@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // The production projects are `composite` and EMIT: their declarations are what other
+    // packages compile against. Test files must never reach `dist/` — they would ship
+    // `.test.d.ts` in every package and drag `vitest` into the published type graph — so
+    // every package's tsconfig excludes them from the build. That exclusion is correct.
+    //
+    // It also meant nothing typechecked them at all. This project closes that: same strict
+    // options, no emit, no composite, so tests are held to the production type rules
+    // without becoming build output.
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/**/*.test.ts",
+    "packages/**/*.test.tsx",
+    "packages/**/__tests__/**/*.ts",
+    "packages/**/__testing__/**/*.ts",
+    "apps/**/*.test.ts",
+    "apps/**/*.test.tsx",
+    "tools/**/*.test.ts"
+  ],
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    // packages/ui is the one package whose own tsconfig does NOT exclude tests: its suites
+    // are .tsx and need `jsx` and the DOM lib, so they are typechecked by its build project
+    // where those options already live. Including them here would need a second, divergent
+    // copy of that configuration.
+    "packages/ui/**"
+  ]
+}

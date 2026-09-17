@@ -150,6 +150,11 @@ describe('gate: an inaccessible component is rejected', () => {
    * than a performance choice — see the comment there.
    */
   const runSpec = (source: string): { code: number; out: string } => {
+    // Sweep anything a previous run left behind. The delete below is in a `finally`, which
+    // a killed process never reaches — one such fixture had been sitting in packages/ui/src
+    // for two days, invisible to git (it is ignored) but picked up by every glob-based tool
+    // that walks the source tree.
+    run('sh', ['-c', `rm -f ${join(uiDir, 'src', '__gate_*.test.tsx')}`], uiDir);
     const file = join(
       uiDir,
       'src',

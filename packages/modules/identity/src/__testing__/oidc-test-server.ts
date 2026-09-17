@@ -15,6 +15,10 @@
  * It also lets the tests do things no real provider would cooperate with: issue a token for a
  * changed email, expire a code on demand, or assert an unverified address.
  */
+// `CryptoKey` is a DOM global, and this project's lib is ES2023 only. Node's own webcrypto
+// namespace declares the same type, so the key `jose` hands back is named without pulling
+// the entire DOM lib into a server-side project.
+import type { webcrypto as NodeWebCrypto } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { exportJWK, generateKeyPair, type JWK, type KeyObject, SignJWT } from 'jose';
@@ -103,7 +107,7 @@ interface TokenContext {
   readonly codes: Map<string, StoredCode>;
   readonly clientId: string;
   readonly clientSecret: string;
-  readonly privateKey: CryptoKey | KeyObject;
+  readonly privateKey: NodeWebCrypto.CryptoKey | KeyObject;
   readonly issuer: string;
 }
 

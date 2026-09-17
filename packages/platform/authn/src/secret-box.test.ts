@@ -43,22 +43,35 @@ describe('round trip', () => {
   });
 });
 
+/**
+ * Flips one bit, failing loudly if the offset is out of range.
+ *
+ * `buf[i] ^= 1` on an out-of-range index is a silent no-op in JavaScript — the tamper never
+ * happens and the test then asserts that untampered ciphertext decrypts, which it does. The
+ * suite would pass while testing nothing. `noUncheckedIndexedAccess` is what surfaced it.
+ */
+function flipBit(buffer: Buffer, index: number): void {
+  const byte = buffer[index];
+  if (byte === undefined) throw new Error(`offset ${index} is outside the ciphertext`);
+  buffer[index] = byte ^ 0x01;
+}
+
 describe('tampering is detected, not silently decrypted', () => {
   it('rejects a flipped bit in the body', () => {
     const encrypted = cipher.encrypt(SECRET);
-    encrypted[encrypted.length - 1] ^= 0x01;
+    flipBit(encrypted, encrypted.length - 1);
     expect(() => cipher.decrypt(encrypted)).toThrow(/Could not decrypt/);
   });
 
   it('rejects a flipped bit in the IV', () => {
     const encrypted = cipher.encrypt(SECRET);
-    encrypted[2] ^= 0x01;
+    flipBit(encrypted, 2);
     expect(() => cipher.decrypt(encrypted)).toThrow(/Could not decrypt/);
   });
 
   it('rejects a flipped bit in the auth tag', () => {
     const encrypted = cipher.encrypt(SECRET);
-    encrypted[14] ^= 0x01;
+    flipBit(encrypted, 14);
     expect(() => cipher.decrypt(encrypted)).toThrow(/Could not decrypt/);
   });
 

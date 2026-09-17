@@ -157,9 +157,9 @@ describe('mechanism 4: biome rejects banned imports and unsafe syntax', () => {
   const base = JSON.parse(
     execFileSync('cat', ['biome.json'], { cwd: REPO, encoding: 'utf8' }),
   ) as Record<string, any>;
-  base.vcs = { enabled: false };
-  base.files.includes = ['**', '!**/node_modules', '!**/dist'];
-  base.overrides = base.overrides.filter(
+  base['vcs'] = { enabled: false };
+  base['files'].includes = ['**', '!**/node_modules', '!**/dist'];
+  base['overrides'] = base['overrides'].filter(
     (o: { includes: string[] }) => !o.includes.includes('tools/**'),
   );
   const cfgFile = join(cfgDir, 'biome.json');

@@ -20,7 +20,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { decide } from '@growth-os/authz';
+import { type ActorContext, decide } from '@growth-os/authz';
 import { withTenant } from '@growth-os/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -234,15 +234,18 @@ describe('impersonation cannot bypass workspace authorization', () => {
 describe('API key authorization cannot bypass workspace authorization', () => {
   it('a key narrowed to one workspace is denied every other one', async () => {
     const base = await contextFor(users.principal);
-    const key = {
+    const key: ActorContext = {
       ...base,
       kind: 'api_key' as const,
-      userId: undefined,
-      organizationMemberId: undefined,
       apiKeyId: 'k-1',
       apiKeyScopes: ['social'],
       apiKeyWorkspaceId: clients['acme'] as string,
     };
+    // A machine actor has no user and no membership row. Under exactOptionalPropertyTypes
+    // that is expressed by ABSENCE, not by an explicit undefined — which is also how a real
+    // resolved key actor is built.
+    delete (key as { userId?: string }).userId;
+    delete (key as { organizationMemberId?: string }).organizationMemberId;
     expect(
       decide(key, 'social.post:read', {
         type: 'post',
@@ -260,7 +263,7 @@ describe('API key authorization cannot bypass workspace authorization', () => {
 
   it('a key cannot reach a workspace outside the set it was resolved with', async () => {
     const base = await contextFor(users.podALead);
-    const key = {
+    const key: ActorContext = {
       ...base,
       kind: 'api_key' as const,
       apiKeyId: 'k-2',

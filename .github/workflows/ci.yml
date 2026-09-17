@@ -37,8 +37,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Type check
+      - name: Type check (production sources; emits the declarations packages compile against)
         run: pnpm run typecheck
+      # Test files are excluded from every package's build project on purpose — they must
+      # not reach dist/ or drag vitest into the published type graph — which left them
+      # unchecked entirely. This project holds them to the same strict options with no emit.
+      # It runs AFTER the build typecheck because it compiles against the emitted .d.ts.
+      - name: Type check (tests)
+        run: pnpm run typecheck:tests
       - name: Format, lint, boundaries, file size, client env, migrations
         run: pnpm run lint
 

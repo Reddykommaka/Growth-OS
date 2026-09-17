@@ -12,6 +12,7 @@
   "scripts": {
     "build": "turbo run build",
     "typecheck": "tsc --build",
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
     "typecheck:clean": "tsc --build --clean && tsc --build",
     "test": "turbo run test",
     "test:integration": "turbo run test:integration",

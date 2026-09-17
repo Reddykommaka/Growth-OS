@@ -7,33 +7,8 @@
  */
 import { ForbiddenError, toProblemDetails } from '@growth-os/errors';
 import { describe, expect, it } from 'vitest';
-import type { ActorContext } from './actor.js';
+import { actor, denialReason, grantSource, POD, WS_A, WS_B } from './__testing__/actors.js';
 import { assertPermission, decide } from './engine.js';
-
-const ORG = 'org-1';
-const WS_A = 'ws-a';
-const WS_B = 'ws-b';
-const POD = 'team-1';
-
-function actor(overrides: Partial<ActorContext> = {}): ActorContext {
-  return {
-    kind: 'user',
-    userId: 'user-1',
-    organizationId: ORG,
-    organizationMemberId: 'member-1',
-    organizationStatus: 'active',
-    assignments: [],
-    resourceGrants: [],
-    accessibleWorkspaceIds: [WS_A],
-    teamIds: [],
-    workspacesByTeam: new Map(),
-    mfaSatisfied: true,
-    mfaRequired: false,
-    impersonated: false,
-    apiKeyScopes: [],
-    ...overrides,
-  };
-}
 
 const editorIn = (workspaceId: string) => ({
   roleId: 'editor',
@@ -91,7 +66,7 @@ describe('denials take precedence over every grant', () => {
       organizationMemberId: undefined,
       assignments: [{ roleId: 'owner', permissions: ['crm.deal:read'] }],
     });
-    expect(decide(a, 'crm.deal:read').reason).toBe('not_a_member');
+    expect(denialReason(decide(a, 'crm.deal:read'))).toBe('not_a_member');
   });
 });
 
@@ -166,7 +141,9 @@ describe('resource grants', () => {
   it('grant access to one specific resource without any role', () => {
     const a = actor({ resourceGrants: [shared] });
     expect(
-      decide(a, 'analytics.report:read', { type: 'report', id: 'r-1', workspaceId: WS_A }).via,
+      grantSource(
+        decide(a, 'analytics.report:read', { type: 'report', id: 'r-1', workspaceId: WS_A }),
+      ),
     ).toBe('resource_grant');
   });
 
@@ -197,7 +174,9 @@ describe('resource grants', () => {
   it('cannot reach a workspace outside the accessible set, grant or no grant', () => {
     const a = actor({ resourceGrants: [shared], accessibleWorkspaceIds: [WS_A] });
     expect(
-      decide(a, 'analytics.report:read', { type: 'report', id: 'r-1', workspaceId: WS_B }).reason,
+      denialReason(
+        decide(a, 'analytics.report:read', { type: 'report', id: 'r-1', workspaceId: WS_B }),
+      ),
     ).toBe('workspace_not_accessible');
   });
 });
@@ -255,7 +234,9 @@ describe('impersonation is constrained, not a master key', () => {
   it('denies reading integration credentials', () => {
     const a = support(['integrations.credential:read']);
     expect(
-      decide(a, 'integrations.credential:read', { type: 'c', id: '1', workspaceId: WS_A }).reason,
+      denialReason(
+        decide(a, 'integrations.credential:read', { type: 'c', id: '1', workspaceId: WS_A }),
+      ),
     ).toBe('impersonation_denied');
   });
 
@@ -267,7 +248,7 @@ describe('impersonation is constrained, not a master key', () => {
       'organization.api_key:read',
       'marketplace.payout:read',
     ] as const) {
-      expect(decide(support([p]), p).reason, p).toBe('impersonation_denied');
+      expect(denialReason(decide(support([p]), p)), p).toBe('impersonation_denied');
     }
   });
 });
@@ -287,7 +268,9 @@ describe('API keys carry scopes, not just the underlying permission', () => {
 
   it('denies a permission the key is not scoped for, even when the role grants it', () => {
     expect(
-      decide(key(['social']), 'crm.deal:read', { type: 'd', id: '1', workspaceId: WS_A }).reason,
+      denialReason(
+        decide(key(['social']), 'crm.deal:read', { type: 'd', id: '1', workspaceId: WS_A }),
+      ),
     ).toBe('api_key_scope');
   });
 
@@ -307,9 +290,9 @@ describe('API keys carry scopes, not just the underlying permission', () => {
 
   it('a key narrowed to one workspace cannot act in another', () => {
     const k = key(['social'], WS_A);
-    expect(decide(k, 'social.post:read', { type: 'p', id: '1', workspaceId: WS_B }).reason).toBe(
-      'workspace_not_accessible',
-    );
+    expect(
+      denialReason(decide(k, 'social.post:read', { type: 'p', id: '1', workspaceId: WS_B })),
+    ).toBe('workspace_not_accessible');
   });
 });
 

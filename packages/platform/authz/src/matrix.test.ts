@@ -41,6 +41,10 @@ function actorWith(role: SystemRole, overrides: Partial<ActorContext> = {}): Act
     assignments: [assignment],
     resourceGrants: [],
     accessibleWorkspaceIds: [WS_A],
+    // Required on ActorContext, and previously missing here — so the whole generated matrix
+    // was computed against an actor no production path can produce. Found by typechecking
+    // the tests; see tsconfig.test.json.
+    workspaceScope: 'set',
     teamIds: role.scope === 'team' ? [TEAM] : [],
     workspacesByTeam: role.scope === 'team' ? new Map([[TEAM, [WS_A]]]) : new Map(),
     mfaSatisfied: true,
