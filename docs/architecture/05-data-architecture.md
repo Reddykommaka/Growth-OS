@@ -309,6 +309,29 @@ tampering is detectable. The table is append-only: the application role holds `I
 `SELECT` and no `UPDATE`/`DELETE` grant at all — enforced by Postgres privileges, not
 convention.
 
+As implemented (migration 0011, `@growth-os/audit`):
+
+- **Canonical form** is length-prefixed field framing, not `JSON.stringify`. Plain
+  concatenation is ambiguous — ("ab","c") and ("a","bc") both yield "abc", so one event could
+  be re-encoded as another with the same hash — and `JSON.stringify` is deterministic only by
+  accident, since key order differs between a built object and one read back from `jsonb`.
+- **Genesis is derived from the organization id**, so one tenant's chain cannot be spliced
+  onto another's and `prev_hash` needs no nullable case.
+- **Ordering is a per-organization `sequence`**, not `occurred_at`: two events in one
+  transaction share a timestamp, and clocks move backwards.
+- **The chain tip lives in `audit_chain_heads`**, taken with `SELECT … FOR UPDATE`. Scanning
+  `audit_events` for it would mean an `ORDER BY` across every partition on the write path and
+  would still let two writers fork the chain. Contention is per organization only.
+- **Written in the transaction, not through the outbox** — see ADR-0019 for why the outbox's
+  after-commit, at-least-once delivery is the wrong shape for a hash chain.
+- **Partitions are hardened at creation.** A partition is a table in its own right: policies
+  on the parent govern access through the parent, and §1's default privileges would grant the
+  application full DML on each new monthly partition. `ensure_audit_partitions` creates and
+  hardens in one step.
+- **Events that precede any tenant** (a failed sign-in against an address belonging to
+  nobody) go to a reserved platform chain rather than being dropped. No tenant session can
+  read it.
+
 ## 10. Data retention and classification
 
 | Class | Examples | Retention | Handling |

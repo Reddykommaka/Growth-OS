@@ -13,6 +13,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { userActor } from '@growth-os/audit';
 import {
   generateTotpSecret,
   hashRecoveryCode,
@@ -85,7 +86,8 @@ export async function startTotpEnrolment(
 
   await deps.audit.record({
     action: 'identity.mfa.enrolment_started',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'mfa_credential',
     resourceId: credentialId,
     // No secret, no URI. Both would put the factor in the audit log.
@@ -128,7 +130,8 @@ export async function confirmTotpEnrolment(
   if (!verifyTotp(secret, code, now)) {
     await deps.audit.record({
       action: 'identity.mfa.enrolment_failed',
-      actorUserId: userId,
+      result: 'failed',
+      actor: userActor(userId),
       resourceType: 'mfa_credential',
       resourceId: credential.id,
     });
@@ -143,7 +146,8 @@ export async function confirmTotpEnrolment(
 
   await deps.audit.record({
     action: 'identity.mfa.enabled',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'mfa_credential',
     resourceId: credential.id,
     metadata: { recoveryCodesIssued: codes.length },
@@ -198,7 +202,8 @@ export async function completeMfaChallenge(
     if (!accepted) {
       await deps.audit.record({
         action: 'identity.mfa.replay_rejected',
-        actorUserId: userId,
+        result: 'denied',
+        actor: userActor(userId),
         resourceType: 'mfa_credential',
         resourceId: credential.id,
       });
@@ -216,7 +221,8 @@ export async function completeMfaChallenge(
     await satisfy(deps, sessionId, userId, now, 'recovery_code');
     await deps.audit.record({
       action: 'identity.mfa.recovery_code_used',
-      actorUserId: userId,
+      result: 'succeeded',
+      actor: userActor(userId),
       resourceType: 'user',
       resourceId: userId,
       metadata: { remaining },
@@ -226,7 +232,8 @@ export async function completeMfaChallenge(
 
   await deps.audit.record({
     action: 'identity.mfa.challenge_failed',
-    actorUserId: userId,
+    result: 'failed',
+    actor: userActor(userId),
     resourceType: 'mfa_credential',
     resourceId: credential.id,
   });
@@ -245,7 +252,8 @@ async function satisfy(
   if (deps.rateLimiter !== undefined) await deps.rateLimiter.reset(`mfa:${userId}`);
   await deps.audit.record({
     action: 'identity.mfa.satisfied',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'session',
     resourceId: sessionId,
     metadata: { method },
@@ -283,7 +291,8 @@ export async function disableMfa(
   if (!byTotp && !byRecovery) {
     await deps.audit.record({
       action: 'identity.mfa.disable_failed',
-      actorUserId: userId,
+      result: 'failed',
+      actor: userActor(userId),
       resourceType: 'mfa_credential',
       resourceId: credential.id,
     });
@@ -294,7 +303,8 @@ export async function disableMfa(
   await deps.users.setMfaEnabled(userId, false);
   await deps.audit.record({
     action: 'identity.mfa.disabled',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'user',
     resourceId: userId,
     metadata: { verifiedBy: byTotp ? 'totp' : 'recovery_code' },
@@ -324,7 +334,8 @@ export async function regenerateRecoveryCodes(
   await deps.mfa.replaceRecoveryCodes(userId, codes.map(hashRecoveryCode));
   await deps.audit.record({
     action: 'identity.mfa.recovery_codes_regenerated',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'user',
     resourceId: userId,
   });

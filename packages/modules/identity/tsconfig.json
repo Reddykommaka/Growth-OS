@@ -16,6 +16,9 @@
   ],
   "references": [
     {
+      "path": "../../platform/audit"
+    },
+    {
       "path": "../../platform/types"
     },
     {

@@ -117,7 +117,15 @@ export interface RolePostureFinding {
  * If growth_os_app ever acquires BYPASSRLS, every isolation policy in the system becomes
  * inert while every test still passes. This assertion is the tripwire.
  */
-export async function checkRolePosture(client: Client | Pool): Promise<RolePostureFinding[]> {
+export async function checkRolePosture(
+  client: Client | Pool,
+  /**
+   * The append-only tables to check. A parameter rather than a constant so a test can build
+   * a FIXTURE proving the check works: with a fixed list, that fixture would have to be
+   * named `audit_events`, and once the real table exists the two collide.
+   */
+  appendOnlyTables: readonly string[] = ['audit_events'],
+): Promise<RolePostureFinding[]> {
   const findings: RolePostureFinding[] = [];
 
   const roles = await client.query<{
@@ -149,7 +157,7 @@ export async function checkRolePosture(client: Client | Pool): Promise<RolePostu
 
   // Append-only tables must withhold UPDATE and DELETE from the application role
   // (05-data-architecture.md §9). Enforced by privileges, not by convention.
-  for (const table of ['audit_events']) {
+  for (const table of appendOnlyTables) {
     const exists = await client.query<{ present: boolean }>(
       'SELECT to_regclass($1) IS NOT NULL AS present',
       [table],
@@ -190,10 +198,33 @@ export interface IsolationProbeResult {
    * and turn the probe back into a real test.
    */
   readonly insertUnreachable?: string;
+  /**
+   * Set when UPDATE or DELETE was refused by a missing GRANT rather than filtered to zero
+   * rows by the policy.
+   *
+   * This is a STRONGER outcome, not a weaker one: an append-only table withholds those
+   * privileges entirely (05-data-architecture.md §9), so the statement never runs. Recorded
+   * distinctly so the result stays honest — "nothing leaked because the policy filtered it"
+   * and "nothing leaked because the statement was refused" are different facts.
+   */
+  readonly mutationsRefusedByPrivilege?: readonly string[];
 }
 
 /** PostgreSQL's insufficient_privilege — what an RLS WITH CHECK rejection raises. */
 const RLS_VIOLATION = '42501';
+
+/**
+ * A missing GRANT, as opposed to a policy rejection.
+ *
+ * Both raise 42501, so the code alone cannot tell them apart; the message is what
+ * distinguishes "permission denied for table x" from "new row violates row-level security
+ * policy". Conflating them would report an append-only table's refusal as an RLS pass and
+ * hide the fact that RLS was never consulted.
+ */
+function isPermissionDenied(error: unknown): boolean {
+  const e = error as { code?: string; message?: string };
+  return e?.code === RLS_VIOLATION && /permission denied/i.test(e?.message ?? '');
+}
 
 /**
  * Structural check 3 — cross-tenant probes.
@@ -231,22 +262,51 @@ export async function probeCrossTenantAccess(
     const read = await client.query(`SELECT 1 FROM ${table} WHERE ${tenantColumn} = $1`, [
       organizationB,
     ]);
-    const updated = await client.query(
+    // An append-only table has no UPDATE or DELETE grant at all, so the statement is refused
+    // before any row is considered. That must be reported as the stronger guarantee it is,
+    // not crash the sweep — which is what happened the first time such a table was added.
+    const refusedByPrivilege: string[] = [];
+    const mutate = async (sql: string, label: string): Promise<number> => {
+      const savepoint = `probe_${label}`;
+      await client.query(`SAVEPOINT ${savepoint}`);
+      try {
+        const r = await client.query(sql, [organizationB]);
+        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+        return r.rowCount ?? 0;
+      } catch (error) {
+        await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        if (isPermissionDenied(error)) {
+          refusedByPrivilege.push(label);
+          return 0;
+        }
+        throw error;
+      }
+    };
+
+    const updated = await mutate(
       `UPDATE ${table} SET ${tenantColumn} = ${tenantColumn} WHERE ${tenantColumn} = $1`,
-      [organizationB],
+      'update',
     );
-    const deleted = await client.query(`DELETE FROM ${table} WHERE ${tenantColumn} = $1`, [
-      organizationB,
-    ]);
+    const deleted = await mutate(`DELETE FROM ${table} WHERE ${tenantColumn} = $1`, 'delete');
 
     // Writes are probed as well as reads because a policy whose USING is broader than its
     // write rule (a published-listing predicate, say) blocks cross-tenant reads while still
     // accepting a cross-tenant INSERT. A select-only probe reports such a table as safe.
     let insertAccepted = false;
     const extraNames = Object.keys(extraColumns);
-    // When the tenant column IS the primary key, naming both would list `id` twice.
-    const idColumns = tenantColumn === 'id' ? ['id'] : ['id', tenantColumn];
-    const idValues = tenantColumn === 'id' ? ['$1'] : ['gen_random_uuid()', '$1'];
+    // Not every tenant table has an `id`: a table keyed BY the organization (a per-tenant
+    // singleton such as a chain head) has only the tenant column. Asking the catalogue
+    // rather than assuming keeps the sweep generic, which is the whole point of it.
+    const hasId = await client.query<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'id'
+       ) AS present`,
+      [table],
+    );
+    const separateId = hasId.rows[0]?.present === true && tenantColumn !== 'id';
+    const idColumns = separateId ? ['id', tenantColumn] : [tenantColumn];
+    const idValues = separateId ? ['gen_random_uuid()', '$1'] : ['$1'];
     const columns = [...idColumns, ...extraNames].join(', ');
     const placeholders = [...idValues, ...extraNames.map((_, i) => `$${i + 2}`)];
     let insertUnreachable: string | undefined;
@@ -269,8 +329,11 @@ export async function probeCrossTenantAccess(
     return {
       table,
       selectLeaked: read.rowCount ?? 0,
-      updateLeaked: updated.rowCount ?? 0,
-      deleteLeaked: deleted.rowCount ?? 0,
+      updateLeaked: updated,
+      deleteLeaked: deleted,
+      ...(refusedByPrivilege.length === 0
+        ? {}
+        : { mutationsRefusedByPrivilege: refusedByPrivilege }),
       insertAccepted,
       ...(insertUnreachable === undefined ? {} : { insertUnreachable }),
     };

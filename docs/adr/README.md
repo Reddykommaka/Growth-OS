@@ -31,6 +31,7 @@ the context, the choice, the alternatives, and the consequences we accepted.
 | [0016](0016-ai-governance.md) | AI governance: provenance, proposals, budgets, evaluation | Accepted |
 | [0017](0017-authentication-libraries.md) | Replace the unmaintained authentication libraries | Accepted |
 | [0018](0018-credentials-carry-their-tenant.md) | Credentials that precede a tenant context carry their tenant | Accepted |
+| [0019](0019-audit-in-transaction-not-outbox.md) | The audit row is written in the transaction, not through the outbox | Accepted |
 
 ADR-0003 was revised before acceptance to add the team layer, following the approved
 agency-first customer decision. ADRs 0013–0016 record decisions introduced by that same

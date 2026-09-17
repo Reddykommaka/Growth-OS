@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { userActor } from '@growth-os/audit';
 import { startSession } from '@growth-os/authn';
 import { ValidationError } from '@growth-os/errors';
 import {
@@ -30,7 +31,8 @@ export async function fail(
 ): Promise<OAuthOutcome> {
   await deps.audit.record({
     action: 'identity.oauth.failed',
-    actorUserId: null,
+    result: 'failed',
+    actor: userActor(null),
     resourceType: 'oauth_request',
     resourceId: input.provider,
     ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -93,7 +95,8 @@ async function createFederatedUser(
   });
   await deps.audit.record({
     action: 'identity.oauth.user_created',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'user',
     resourceId: userId,
     ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -134,7 +137,8 @@ export async function completeSignIn(
     case 'require_explicit_link':
       await deps.audit.record({
         action: 'identity.oauth.link_required',
-        actorUserId: null,
+        result: 'denied',
+        actor: userActor(null),
         resourceType: 'user',
         resourceId: decision.existingUserId,
         ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -184,7 +188,8 @@ export async function completeLink(
   if (decision.action === 'refuse') {
     await deps.audit.record({
       action: 'identity.oauth.link_refused',
-      actorUserId: sessionUserId,
+      result: 'denied',
+      actor: userActor(sessionUserId),
       resourceType: 'user',
       resourceId: sessionUserId,
       ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -208,7 +213,8 @@ export async function completeLink(
   });
   await deps.audit.record({
     action: 'identity.oauth.linked',
-    actorUserId: sessionUserId,
+    result: 'succeeded',
+    actor: userActor(sessionUserId),
     resourceType: 'user',
     resourceId: sessionUserId,
     ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -257,7 +263,8 @@ async function issueSession(
 
   await deps.audit.record({
     action: 'identity.oauth.signin_succeeded',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'session',
     resourceId: sessionId,
     ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -300,7 +307,8 @@ export async function unlinkProvider(
   if (removed) {
     await deps.audit.record({
       action: 'identity.oauth.unlinked',
-      actorUserId: userId,
+      result: 'succeeded',
+      actor: userActor(userId),
       resourceType: 'user',
       resourceId: userId,
       metadata: { provider },

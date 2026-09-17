@@ -14,19 +14,15 @@ export interface Clock {
 
 export const systemClock: Clock = { now: () => new Date() };
 
-export interface AuditEvent {
-  readonly action: string;
-  readonly actorUserId: string | null;
-  readonly organizationId?: string | undefined;
-  readonly resourceType: string;
-  readonly resourceId: string;
-  readonly ip?: string | undefined;
-  readonly metadata?: Readonly<Record<string, unknown>> | undefined;
-}
-
-export interface AuditSink {
-  record(event: AuditEvent): Promise<void>;
-}
+/**
+ * Audit events are recorded through @growth-os/audit's canonical port.
+ *
+ * This module used to declare its own identical `AuditEvent`/`AuditSink` pair, and so did
+ * the other one — two copies that would have become three with the next module, at which
+ * point they drift and the log stops being uniformly verifiable. The shape now lives with
+ * the hash chain that has to canonicalise it.
+ */
+export type { AuditEntry, AuditSink } from '@growth-os/audit';
 
 export interface RateLimiter {
   consume(key: string): Promise<boolean>;

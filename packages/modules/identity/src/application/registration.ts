@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { userActor } from '@growth-os/audit';
 import { hashPassword, hashToken, issueToken, verifyPassword } from '@growth-os/authn';
 import { ConflictError, ValidationError } from '@growth-os/errors';
 import {
@@ -93,7 +94,8 @@ export async function register(
 
   await deps.audit.record({
     action: 'identity.user.registered',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'user',
     resourceId: userId,
     ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -164,7 +166,8 @@ export async function verifyEmail(
   await deps.users.markEmailVerified(row.userId, now);
   await deps.audit.record({
     action: 'identity.email.verified',
-    actorUserId: row.userId,
+    result: 'succeeded',
+    actor: userActor(row.userId),
     resourceType: 'user',
     resourceId: row.userId,
     ...(ip === undefined ? {} : { ip }),
@@ -207,7 +210,8 @@ export async function requestPasswordReset(
 
   await deps.audit.record({
     action: 'identity.password.reset_requested',
-    actorUserId: user.id,
+    result: 'succeeded',
+    actor: userActor(user.id),
     resourceType: 'user',
     resourceId: user.id,
     ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -249,7 +253,8 @@ export async function completePasswordReset(
 
   await deps.audit.record({
     action: 'identity.password.reset_completed',
-    actorUserId: row.userId,
+    result: 'succeeded',
+    actor: userActor(row.userId),
     resourceType: 'user',
     resourceId: row.userId,
     ...(ip === undefined ? {} : { ip }),
@@ -297,7 +302,8 @@ export async function changePassword(
 
   await deps.audit.record({
     action: 'identity.password.changed',
-    actorUserId: user.id,
+    result: 'succeeded',
+    actor: userActor(user.id),
     resourceType: 'user',
     resourceId: user.id,
     ...(input.ip === undefined ? {} : { ip: input.ip }),

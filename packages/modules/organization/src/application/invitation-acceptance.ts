@@ -6,6 +6,7 @@
  * and must work out which tenant that string even refers to before it can read anything.
  */
 
+import { userActor } from '@growth-os/audit';
 import { hashToken, parseTenantToken } from '@growth-os/authn';
 import { addressMatchesInvitation, invitationState } from '../domain/invitations.js';
 import type {
@@ -147,7 +148,8 @@ async function settleAcceptance(
 
   await deps.audit.record({
     action: 'organization.invitation.accepted',
-    actorUserId: input.userId,
+    result: 'succeeded',
+    actor: userActor(input.userId),
     organizationId: row.organizationId,
     resourceType: 'invitation',
     resourceId: row.id,
@@ -171,7 +173,8 @@ async function refuse(
 ): Promise<AcceptOutcome> {
   await deps.audit.record({
     action: 'organization.invitation.acceptance_refused',
-    actorUserId: input.userId,
+    result: 'denied',
+    actor: userActor(input.userId),
     ...(row === null ? {} : { organizationId: row.organizationId }),
     resourceType: 'invitation',
     resourceId: row?.id ?? 'unknown',

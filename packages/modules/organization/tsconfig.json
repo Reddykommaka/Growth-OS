@@ -18,6 +18,9 @@
       "path": "../../platform/authz"
     },
     {
+      "path": "../../platform/audit"
+    },
+    {
       "path": "../../platform/db"
     },
     {

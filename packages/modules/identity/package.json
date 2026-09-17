@@ -27,7 +27,8 @@
     "@growth-os/authn": "workspace:*",
     "@growth-os/errors": "workspace:*",
     "@growth-os/types": "workspace:*",
-    "openid-client": "6.8.8"
+    "openid-client": "6.8.8",
+    "@growth-os/audit": "workspace:*"
   },
   "devDependencies": {
     "@growth-os/authz": "workspace:*",

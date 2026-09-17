@@ -11,10 +11,18 @@
   },
   "scripts": {
     "build": "tsc --build",
-    "clean": "tsc --build --clean && rm -rf dist"
+    "clean": "tsc --build --clean && rm -rf dist",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@growth-os/types": "workspace:*",
-    "@growth-os/errors": "workspace:*"
+    "@growth-os/errors": "workspace:*",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "vitest": "5.0.0",
+    "@types/pg": "8.23.1",
+    "@growth-os/testing": "workspace:*"
   }
 }

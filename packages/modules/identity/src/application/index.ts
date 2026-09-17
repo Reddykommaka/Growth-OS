@@ -41,7 +41,7 @@ export {
   type VerifiedProviderIdentity,
 } from './oauth-port.js';
 export type {
-  AuditEvent,
+  AuditEntry,
   AuditSink,
   AuthRateLimiter,
   Clock,

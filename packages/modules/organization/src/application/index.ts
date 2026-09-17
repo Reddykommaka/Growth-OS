@@ -5,11 +5,14 @@
  * lifecycle rules are testable without a database — and the properties that are properties
  * OF the database are tested against a real cluster.
  */
+
 export {
   type ApiKeyAuthDependencies,
   type ApiKeyAuthResult,
-  type ApiKeyDependencies,
   authenticateApiKey,
+} from './api-key-auth.js';
+export {
+  type ApiKeyDependencies,
   type CreateApiKeyInput,
   type CreatedApiKey,
   createApiKey,
@@ -18,6 +21,15 @@ export {
   revokeApiKey,
   rotateApiKey,
 } from './api-keys.js';
+export {
+  type AuditLogDependencies,
+  type AuditLogPage,
+  auditGenesis,
+  type ReadAuditLogInput,
+  readAuditLog,
+  type VerifyAuditLogResult,
+  verifyAuditLog,
+} from './audit-log.js';
 export {
   type AcceptDependencies,
   type AcceptInvitationInput,
@@ -36,7 +48,7 @@ export type {
   AdmitInput,
   ApiKeyRepository,
   ApiKeyRow,
-  AuditEvent,
+  AuditEntry,
   AuditSink,
   Clock,
   InvitationDelivery,

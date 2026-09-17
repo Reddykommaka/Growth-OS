@@ -187,25 +187,40 @@ describe('check 2 — role posture', () => {
     expect(await checkRolePosture(admin)).toEqual([]);
   });
 
+  /**
+   * The fixture is named `append_only_fixture`, not `audit_events`.
+   *
+   * It used to reuse the real name, which worked only while `audit_events` did not exist. As
+   * soon as migration 0011 created it, the fixture's CREATE TABLE collided and the check
+   * that proves this tripwire works stopped running at all — the worst way for a security
+   * check to fail, since the real table still passed and the suite reported one unrelated
+   * error.
+   */
   it('catches an UPDATE grant on an append-only table', async () => {
     await admin.query(`
-      CREATE TABLE audit_events (id uuid PRIMARY KEY, organization_id uuid NOT NULL);
-      ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
-      ALTER TABLE audit_events FORCE  ROW LEVEL SECURITY;
-      CREATE POLICY tenant_isolation ON audit_events
+      CREATE TABLE append_only_fixture (id uuid PRIMARY KEY, organization_id uuid NOT NULL);
+      ALTER TABLE append_only_fixture ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE append_only_fixture FORCE  ROW LEVEL SECURITY;
+      CREATE POLICY tenant_isolation ON append_only_fixture
         USING      (organization_id = app_current_organization_id())
         WITH CHECK (organization_id = app_current_organization_id());
-      GRANT SELECT, INSERT, UPDATE ON audit_events TO ${APP_ROLE};
+      GRANT SELECT, INSERT, UPDATE ON append_only_fixture TO ${APP_ROLE};
     `);
     try {
-      const findings = await checkRolePosture(admin);
+      const findings = await checkRolePosture(admin, ['append_only_fixture']);
       expect(findings).toContainEqual({
         role: 'growth_os_app',
-        problem: 'has UPDATE on append-only audit_events',
+        problem: 'has UPDATE on append-only append_only_fixture',
       });
     } finally {
-      await admin.query('DROP TABLE audit_events');
+      await admin.query('DROP TABLE append_only_fixture');
     }
+  });
+
+  /** And the REAL table passes the same check, so the rule is not passing by absence. */
+  it('the real audit_events holds neither UPDATE nor DELETE', async () => {
+    const findings = await checkRolePosture(admin);
+    expect(findings.filter((f) => f.problem.includes('audit_events'))).toEqual([]);
   });
 });
 

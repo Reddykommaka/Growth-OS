@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { userActor } from '@growth-os/audit';
 import {
   hashToken,
   renewedExpiry,
@@ -195,7 +196,8 @@ export async function signIn(deps: SignInDependencies, input: SignInInput): Prom
   if (user === undefined) {
     await deps.audit.record({
       action: 'identity.signin.failed',
-      actorUserId: null,
+      result: 'failed',
+      actor: userActor(null),
       resourceType: 'user',
       resourceId: 'unknown',
       ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -219,7 +221,8 @@ export async function signIn(deps: SignInDependencies, input: SignInInput): Prom
 
   await deps.audit.record({
     action: mfaOutstanding ? 'identity.signin.mfa_pending' : 'identity.signin.succeeded',
-    actorUserId: user.id,
+    result: 'succeeded',
+    actor: userActor(user.id),
     resourceType: 'session',
     resourceId: sessionId,
     ...(input.ip === undefined ? {} : { ip: input.ip }),
@@ -242,7 +245,8 @@ async function recordFailure(
 ): Promise<void> {
   await deps.audit.record({
     action: 'identity.signin.failed',
-    actorUserId: userId,
+    result: 'failed',
+    actor: userActor(userId),
     resourceType: 'user',
     resourceId: userId,
     ...(ip === undefined ? {} : { ip }),
@@ -322,7 +326,8 @@ export async function signOut(
   await deps.sessions.revoke(sessionId, now, 'signed_out');
   await deps.audit.record({
     action: 'identity.signout',
-    actorUserId,
+    result: 'succeeded',
+    actor: userActor(actorUserId),
     resourceType: 'session',
     resourceId: sessionId,
     ...(ip === undefined ? {} : { ip }),
@@ -345,7 +350,8 @@ export async function signOutEverywhere(
   );
   await deps.audit.record({
     action: 'identity.signout_everywhere',
-    actorUserId: userId,
+    result: 'succeeded',
+    actor: userActor(userId),
     resourceType: 'user',
     resourceId: userId,
     ...(ip === undefined ? {} : { ip }),

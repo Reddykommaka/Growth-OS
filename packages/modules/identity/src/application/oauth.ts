@@ -11,6 +11,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { userActor } from '@growth-os/audit';
 import { hashToken } from '@growth-os/authn';
 import { ValidationError } from '@growth-os/errors';
 import { completeLink, completeSignIn, fail } from './oauth-flows.js';
@@ -85,7 +86,8 @@ export async function beginOAuth(
 
   await deps.audit.record({
     action: 'identity.oauth.started',
-    actorUserId: input.linkUserId ?? null,
+    result: 'succeeded',
+    actor: userActor(input.linkUserId ?? null),
     resourceType: 'oauth_request',
     resourceId: provider.id,
     ...(input.ip === undefined ? {} : { ip: input.ip }),

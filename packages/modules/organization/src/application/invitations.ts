@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { userActor } from '@growth-os/audit';
 import { issueTenantToken } from '@growth-os/authn';
 import type { ActorContext } from '@growth-os/authz';
 import { assertPermission, decide, type Permission } from '@growth-os/authz';
@@ -125,7 +126,8 @@ export async function createInvitation(
 
   await deps.audit.record({
     action: 'organization.invitation.created',
-    actorUserId: actor.userId ?? null,
+    result: 'succeeded',
+    actor: userActor(actor.userId ?? null),
     organizationId: actor.organizationId,
     resourceType: 'invitation',
     resourceId: invitationId,
@@ -185,7 +187,8 @@ async function authorizeInvitation(
   if (!verdict.allowed) {
     await deps.audit.record({
       action: 'organization.invitation.escalation_refused',
-      actorUserId: actor.userId ?? null,
+      result: 'denied',
+      actor: userActor(actor.userId ?? null),
       organizationId: actor.organizationId,
       resourceType: 'invitation',
       resourceId: input.roleSlug,
@@ -225,7 +228,8 @@ export async function revokeInvitation(
   if (revoked) {
     await deps.audit.record({
       action: 'organization.invitation.revoked',
-      actorUserId: actor.userId ?? null,
+      result: 'succeeded',
+      actor: userActor(actor.userId ?? null),
       organizationId: actor.organizationId,
       resourceType: 'invitation',
       resourceId: invitationId,
@@ -274,7 +278,8 @@ export async function resendInvitation(
 
   await deps.audit.record({
     action: 'organization.invitation.resent',
-    actorUserId: actor.userId ?? null,
+    result: 'succeeded',
+    actor: userActor(actor.userId ?? null),
     organizationId: actor.organizationId,
     resourceType: 'invitation',
     resourceId: row.id,

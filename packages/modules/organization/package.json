@@ -25,7 +25,8 @@
     "@growth-os/authz": "workspace:*",
     "pg": "8.16.3",
     "@growth-os/db": "workspace:*",
-    "@growth-os/authn": "workspace:*"
+    "@growth-os/authn": "workspace:*",
+    "@growth-os/audit": "workspace:*"
   },
   "devDependencies": {
     "vitest": "5.0.0",

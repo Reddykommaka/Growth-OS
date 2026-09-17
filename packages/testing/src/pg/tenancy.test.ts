@@ -107,12 +107,45 @@ describe('structural check 2 — role posture', () => {
   });
 });
 
+/**
+ * Columns a table needs before its probe row can reach the policy at all.
+ *
+ * The generic probe inserts id + tenant column. A table with further NOT NULL columns — or a
+ * partition key, which decides whether the row has anywhere to go — rejects that minimal row
+ * before RLS is consulted, and `insertUnreachable` says so rather than calling it a pass.
+ */
+const PROBE_COLUMNS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  audit_events: {
+    // The partition key. Without it PostgreSQL has no partition for the row and rejects it
+    // with 23514 before the policy is evaluated.
+    occurred_at: 'now()',
+    sequence: '1',
+    actor_type: `'system'`,
+    action: `'probe'`,
+    resource_type: `'probe'`,
+    resource_id: `'probe'`,
+    result: `'succeeded'`,
+    prev_hash: `decode(repeat('00', 32), 'hex')`,
+    hash: `decode(repeat('00', 32), 'hex')`,
+  },
+  audit_chain_heads: {
+    last_sequence: '0',
+    last_hash: `decode(repeat('00', 32), 'hex')`,
+  },
+};
+
 describe('structural check 3 — cross-tenant probes over the real schema', () => {
   it('no tenancy table leaks in any direction', async () => {
     const tables = await tenantScopedTables(db.pool);
     const leaks: unknown[] = [];
     for (const table of tables) {
-      const r = await probeCrossTenantAccess(db.pool, table, ORG_A, ORG_B);
+      const r = await probeCrossTenantAccess(
+        db.pool,
+        table,
+        ORG_A,
+        ORG_B,
+        PROBE_COLUMNS[table] ?? {},
+      );
       if (r.selectLeaked > 0 || r.updateLeaked > 0 || r.deleteLeaked > 0 || r.insertAccepted) {
         leaks.push(r);
       }
@@ -132,7 +165,13 @@ describe('structural check 3 — cross-tenant probes over the real schema', () =
     const tables = await tenantScopedTables(db.pool);
     const unreachable: Record<string, string> = {};
     for (const table of tables) {
-      const r = await probeCrossTenantAccess(db.pool, table, ORG_A, ORG_B);
+      const r = await probeCrossTenantAccess(
+        db.pool,
+        table,
+        ORG_A,
+        ORG_B,
+        PROBE_COLUMNS[table] ?? {},
+      );
       if (r.insertUnreachable !== undefined) unreachable[table] = r.insertUnreachable;
     }
     expect(unreachable).toEqual({});

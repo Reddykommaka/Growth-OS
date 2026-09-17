@@ -8,7 +8,7 @@
  */
 import { createSecretCipher, generateSecretKey } from '@growth-os/authn';
 import type { Pool } from 'pg';
-import type { AuditEvent, AuditSink, AuthRateLimiter, Clock } from '../application/ports.js';
+import type { AuditEntry, AuditSink, AuthRateLimiter, Clock } from '../application/ports.js';
 import {
   createMfaRepository,
   createSessionRepository,
@@ -34,14 +34,14 @@ export class TestClock implements Clock {
 }
 
 export class RecordingAuditSink implements AuditSink {
-  readonly events: AuditEvent[] = [];
-  async record(event: AuditEvent): Promise<void> {
+  readonly events: AuditEntry[] = [];
+  async record(event: AuditEntry): Promise<void> {
     this.events.push(event);
   }
   actions(): string[] {
     return this.events.map((e) => e.action);
   }
-  find(action: string): AuditEvent | undefined {
+  find(action: string): AuditEntry | undefined {
     return this.events.find((e) => e.action === action);
   }
   clear(): void {
