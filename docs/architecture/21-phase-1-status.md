@@ -241,3 +241,87 @@ and the integration gate three times, with no flake.
 - Test files and `src/__testing__/` remain excluded from `tsc --build`, so **no test file is
   typechecked**. Unchanged from §7.
 - Invitation delivery is still a contract with no production implementation.
+
+## 9. Work items 1.12–1.13 — test typechecking, and the audit log
+
+### Test files had never been typechecked (1.12)
+
+Every package's tsconfig excludes `**/*.test.ts`. That exclusion is **correct**: the build
+projects are `composite` and emit, so test files would land in `dist/` as `.test.d.ts` in
+every package and drag `vitest` into the published type graph. What was wrong is that nothing
+else checked them — vitest transforms with esbuild, which strips types without checking them,
+so a test asserting against a field that no longer exists would run and pass.
+
+`tsconfig.test.json` closes it: same strict options, `noEmit`, no `composite`, run as
+`pnpm typecheck:tests` and wired into CI after `typecheck` (it compiles against the emitted
+declarations). `packages/ui` stays out — it is the one package that already includes its own
+tests, because they are `.tsx` and need `jsx` and the DOM lib.
+
+**What each command checks**
+
+| | `pnpm typecheck` | `pnpm typecheck:tests` |
+| --- | --- | --- |
+| Project | per-package `tsconfig.json`, via `tsc --build` | root `tsconfig.test.json` |
+| Inputs | `src/**` minus tests and `__testing__` | `**/*.test.ts(x)`, `__tests__/`, `__testing__/` |
+| Emits | `.js` + `.d.ts` into `dist/` | nothing |
+| Why separate | tests must not become build output or published types | tests must still be held to the production type rules |
+
+It found 22 errors in 6 files, two of them real defects rather than type noise:
+
+1. **`workspaceScope` is required on `ActorContext` and was missing from the actor builders in
+   both `engine.test.ts` and `matrix.test.ts`.** Every actor in those suites ran with it
+   `undefined` — a shape no production path produces. The generated authorization matrix,
+   which caught three over-grants in 1.2, was computing its conclusions against a malformed
+   actor. It still passes with a well-formed one, so the findings hold.
+2. **`secret-box.test.ts` flipped a bit with `buf[i] ^= 1`.** Out of range that is a silent
+   no-op in JavaScript: the tamper never happens and the test then asserts that untampered
+   ciphertext decrypts, which it does. Three tamper-detection tests could have passed while
+   testing nothing. The offsets in use were in range, so the hazard was latent, not live.
+
+The gate is verified to guard: a probe test containing `const n: number = 'x'` is rejected.
+
+### The audit log (1.13)
+
+Implemented per §9 of [05-data-architecture.md](05-data-architecture.md), with
+[ADR-0019](../adr/0019-audit-in-transaction-not-outbox.md) recording the one decision that
+needed deciding rather than following: audit is written **in the transaction**, not through
+the outbox. ADR-0007 names audit among the effects the outbox exists for, but the outbox
+solves a dual-write to *another system* — it delivers after commit and at least once, which
+for a hash chain means a window where the change is visible and unrecorded, plus duplicates
+the chain cannot absorb.
+
+Three things are worth carrying forward as design commitments rather than details:
+
+- **The chain head is a table, not a scan.** Finding the previous hash by ordering
+  `audit_events` would put an `ORDER BY` across every monthly partition on the write path and
+  would still race. One narrow row per organization, taken `FOR UPDATE`, gives the tip and
+  the serialization together. The cost is stated in the ADR: writers within one organization
+  serialize for the enclosing transaction, so the audit write belongs at the END of a
+  transaction, not the start.
+- **Append-only is a GRANT, and partitions are tables.** Migration 0001's default privileges
+  grant UPDATE and DELETE on everything the migrator creates, so 0011 revokes them — and does
+  the same for every monthly partition, because a policy on the parent does not govern a
+  query that names a partition directly.
+- **The read rule is narrower than the write rule, deliberately.** Requiring accessible-set
+  membership on INSERT would make the audit write the statement that fails when a service
+  acts slightly outside its set — converting a boundary slip into a lost security record,
+  silently, because the failing statement is the one that was supposed to leave the evidence.
+
+Adding the table also exposed two structural checks that were passing for the wrong reason,
+both now fixed: the append-only posture fixture was named `audit_events` and collided with
+the real table the moment it existed (so the check proving that tripwire works stopped
+running), and the cross-tenant probe assumed every tenant table has an `id` column and issued
+UPDATE/DELETE unconditionally, crashing on an append-only table rather than recording that
+the statement was refused by privilege.
+
+### Still open after 1.13
+
+- **Untenanted identity events are not yet routed to the platform chain.** The reserved
+  chain, its policy consequence and the constant exist and are documented; the identity
+  services still record through the port without an organization for pre-tenant events
+  (registration, a failed sign-in against an unknown address). Wiring that is the remaining
+  piece of "authentication events are durably audited".
+- Invitation delivery is still a contract with no production implementation
+  (`platform/notifications` pending).
+- No retention job runs yet: `ensure_audit_partitions` and `detach_partitions_before` exist
+  and are tested, but nothing schedules them (`apps/worker` scheduling is a later item).
