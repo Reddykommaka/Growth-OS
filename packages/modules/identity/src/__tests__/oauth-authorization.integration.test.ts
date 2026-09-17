@@ -117,6 +117,7 @@ beforeAll(async () => {
     audit: fixture.h.audit,
     clock: fixture.h.clock,
     cipher: fixture.h.cipher,
+    unitOfWork: fixture.h.unitOfWork,
   };
 
   // Every account below is created by a real federated sign-in, not seeded.

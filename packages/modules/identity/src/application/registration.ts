@@ -24,8 +24,12 @@ import type {
   UserRepository,
   UserTokenRepository,
 } from './ports.js';
+import type { IdentityUnitOfWork } from './unit-of-work.js';
+import { bindToTransaction } from './unit-of-work.js';
 
 export interface RegistrationDependencies {
+  /** The transaction these writes and their audit events commit within. */
+  readonly unitOfWork: IdentityUnitOfWork;
   readonly users: UserRepository;
   readonly tokens: UserTokenRepository;
   readonly sessions: SessionRepository;
@@ -64,6 +68,17 @@ export interface RegisterResult {
  * here means a user who already has an account gets a "check your email" that never arrives.
  */
 export async function register(
+  deps: RegistrationDependencies,
+  input: RegisterInput,
+): Promise<RegisterResult> {
+  return await deps.unitOfWork.transaction(
+    'identity registration',
+    async (repositories) =>
+      await registerInTransaction(bindToTransaction(deps, repositories), input),
+  );
+}
+
+async function registerInTransaction(
   deps: RegistrationDependencies,
   input: RegisterInput,
 ): Promise<RegisterResult> {
@@ -134,6 +149,17 @@ export async function resendVerification(
   deps: RegistrationDependencies,
   userId: string,
 ): Promise<{ verificationToken: string; expiresAt: Date }> {
+  return await deps.unitOfWork.transaction(
+    'identity verification resend',
+    async (repositories) =>
+      await resendVerificationInTransaction(bindToTransaction(deps, repositories), userId),
+  );
+}
+
+async function resendVerificationInTransaction(
+  deps: RegistrationDependencies,
+  userId: string,
+): Promise<{ verificationToken: string; expiresAt: Date }> {
   await deps.tokens.invalidateAllFor(userId, 'email_verification', deps.clock.now());
   return await issueVerificationToken(deps, userId);
 }
@@ -148,6 +174,18 @@ export type VerificationOutcome = 'verified' | 'invalid' | 'expired' | 'already_
  * check, and the second one must lose.
  */
 export async function verifyEmail(
+  deps: RegistrationDependencies,
+  token: string,
+  ip?: string,
+): Promise<VerificationOutcome> {
+  return await deps.unitOfWork.transaction(
+    'identity email verification',
+    async (repositories) =>
+      await verifyEmailInTransaction(bindToTransaction(deps, repositories), token, ip),
+  );
+}
+
+async function verifyEmailInTransaction(
   deps: RegistrationDependencies,
   token: string,
   ip?: string,
@@ -191,6 +229,17 @@ export async function requestPasswordReset(
   deps: RegistrationDependencies,
   input: PasswordResetRequest,
 ): Promise<{ token: string; expiresAt: Date; userId: string } | undefined> {
+  return await deps.unitOfWork.transaction(
+    'identity password reset request',
+    async (repositories) =>
+      await requestPasswordResetInTransaction(bindToTransaction(deps, repositories), input),
+  );
+}
+
+async function requestPasswordResetInTransaction(
+  deps: RegistrationDependencies,
+  input: PasswordResetRequest,
+): Promise<{ token: string; expiresAt: Date; userId: string } | undefined> {
   const email = normaliseEmail(input.email);
   const user = await deps.users.findByEmail(email);
   if (user === undefined) return undefined;
@@ -230,6 +279,24 @@ export type PasswordResetOutcome = 'reset' | 'invalid' | 'expired' | 'already_us
  * entire exercise — and the user has no way to know it is still there.
  */
 export async function completePasswordReset(
+  deps: RegistrationDependencies,
+  token: string,
+  newPassword: string,
+  ip?: string,
+): Promise<PasswordResetOutcome> {
+  return await deps.unitOfWork.transaction(
+    'identity password reset',
+    async (repositories) =>
+      await completePasswordResetInTransaction(
+        bindToTransaction(deps, repositories),
+        token,
+        newPassword,
+        ip,
+      ),
+  );
+}
+
+async function completePasswordResetInTransaction(
   deps: RegistrationDependencies,
   token: string,
   newPassword: string,
@@ -280,6 +347,17 @@ export interface ChangePasswordInput {
  * account ownership.
  */
 export async function changePassword(
+  deps: RegistrationDependencies,
+  input: ChangePasswordInput,
+): Promise<void> {
+  return await deps.unitOfWork.transaction(
+    'identity password change',
+    async (repositories) =>
+      await changePasswordInTransaction(bindToTransaction(deps, repositories), input),
+  );
+}
+
+async function changePasswordInTransaction(
   deps: RegistrationDependencies,
   input: ChangePasswordInput,
 ): Promise<void> {

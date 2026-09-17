@@ -12,5 +12,9 @@ export {
 export { createOidcProvider, type OidcProviderConfig } from './oidc-provider.js';
 export type { Queryable } from './queryable.js';
 export { createSessionRepository } from './session-repository.js';
+export {
+  createIdentityUnitOfWork,
+  type IdentityUnitOfWorkOptions,
+} from './unit-of-work.js';
 export { createUserRepository } from './user-repository.js';
 export { createUserTokenRepository } from './user-token-repository.js';

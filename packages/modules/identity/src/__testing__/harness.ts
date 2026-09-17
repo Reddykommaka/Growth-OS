@@ -15,6 +15,7 @@ import {
   createUserRepository,
   createUserTokenRepository,
 } from '../infrastructure/index.js';
+import { createIdentityUnitOfWork } from '../infrastructure/unit-of-work.js';
 
 /** A clock the test drives, so expiry and lockout windows do not require real waiting. */
 export class TestClock implements Clock {
@@ -66,10 +67,16 @@ export class CountingRateLimiter implements AuthRateLimiter {
 export function buildIdentity(pool: Pool) {
   const clock = new TestClock();
   const audit = new RecordingAuditSink();
+  // A REAL unit of work — `withoutTenantContext`, real repositories bound to the
+  // transaction — with the recording sink substituted, because these suites assert on audit
+  // CONTENT rather than on its durability. The atomicity of the audit row itself is proved
+  // against the production sink in unit-of-work.integration.test.ts.
+  const unitOfWork = createIdentityUnitOfWork(pool, { auditSink: () => audit });
   const cipher = createSecretCipher(generateSecretKey());
   return {
     clock,
     audit,
+    unitOfWork,
     cipher,
     users: createUserRepository(pool),
     sessions: createSessionRepository(pool),

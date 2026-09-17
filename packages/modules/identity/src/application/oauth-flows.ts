@@ -17,6 +17,7 @@ import {
 } from '../domain/oauth-linking.js';
 import type { ProviderId, VerifiedProviderIdentity } from './oauth-port.js';
 import type { CompleteOAuthInput, OAuthDependencies, OAuthOutcome } from './oauth-types.js';
+import { bindToTransaction } from './unit-of-work.js';
 
 /**
  * Collapses every protocol and policy failure to one opaque outcome.
@@ -25,6 +26,24 @@ import type { CompleteOAuthInput, OAuthDependencies, OAuthOutcome } from './oaut
  * someone whether the state was unknown, expired or replayed narrows an attack for free.
  */
 export async function fail(
+  deps: OAuthDependencies,
+  input: CompleteOAuthInput,
+  reason: Extract<OAuthOutcome, { outcome: 'failed' }>['reason'],
+): Promise<OAuthOutcome> {
+  // A unit of work for a single audit row, because the row is the whole operation: a refused
+  // OAuth callback mutates nothing, and the record of the refusal is the only thing that must
+  // survive. It goes through the unit of work rather than an ambient sink so that this path
+  // writes to the same durable, chained log as every other — an event class that is silent
+  // because it took a different route is exactly what an attacker probing state, PKCE and
+  // nonce handling would produce.
+  return await deps.unitOfWork.transaction(
+    'identity oauth failure',
+    async (repositories) =>
+      await failInTransaction(bindToTransaction(deps, repositories), input, reason),
+  );
+}
+
+async function failInTransaction(
   deps: OAuthDependencies,
   input: CompleteOAuthInput,
   reason: Extract<OAuthOutcome, { outcome: 'failed' }>['reason'],
@@ -111,6 +130,18 @@ export async function completeSignIn(
   identity: VerifiedProviderIdentity,
   input: CompleteOAuthInput,
 ): Promise<OAuthOutcome> {
+  return await deps.unitOfWork.transaction(
+    'identity oauth sign-in',
+    async (repositories) =>
+      await completeSignInInTransaction(bindToTransaction(deps, repositories), identity, input),
+  );
+}
+
+async function completeSignInInTransaction(
+  deps: OAuthDependencies,
+  identity: VerifiedProviderIdentity,
+  input: CompleteOAuthInput,
+): Promise<OAuthOutcome> {
   const now = deps.clock.now();
   const existing = await deps.identities.findByProviderSubject(
     identity.provider,
@@ -167,6 +198,24 @@ export async function completeSignIn(
 
 /** Attaches a provider identity to an already-authenticated user. */
 export async function completeLink(
+  deps: OAuthDependencies,
+  sessionUserId: string,
+  identity: VerifiedProviderIdentity,
+  input: CompleteOAuthInput,
+): Promise<OAuthOutcome> {
+  return await deps.unitOfWork.transaction(
+    'identity oauth link',
+    async (repositories) =>
+      await completeLinkInTransaction(
+        bindToTransaction(deps, repositories),
+        sessionUserId,
+        identity,
+        input,
+      ),
+  );
+}
+
+async function completeLinkInTransaction(
   deps: OAuthDependencies,
   sessionUserId: string,
   identity: VerifiedProviderIdentity,
@@ -288,6 +337,18 @@ async function issueSession(
  * would be locked out permanently, and "I removed my own access" is not a recoverable state.
  */
 export async function unlinkProvider(
+  deps: OAuthDependencies,
+  userId: string,
+  provider: ProviderId,
+): Promise<boolean> {
+  return await deps.unitOfWork.transaction(
+    'identity oauth unlink',
+    async (repositories) =>
+      await unlinkProviderInTransaction(bindToTransaction(deps, repositories), userId, provider),
+  );
+}
+
+async function unlinkProviderInTransaction(
   deps: OAuthDependencies,
   userId: string,
   provider: ProviderId,

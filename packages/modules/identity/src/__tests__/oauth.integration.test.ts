@@ -68,6 +68,7 @@ beforeAll(async () => {
     audit: fixture.h.audit,
     clock: fixture.h.clock,
     cipher: fixture.h.cipher,
+    unitOfWork: fixture.h.unitOfWork,
   };
 }, 180_000);
 

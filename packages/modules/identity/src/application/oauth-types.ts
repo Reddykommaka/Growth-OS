@@ -20,12 +20,15 @@ import type {
   SessionRepository,
   UserRepository,
 } from './ports.js';
+import type { IdentityUnitOfWork } from './unit-of-work.js';
 
 /** Ten minutes, matching the connection flow in 07 §2. Long enough to consent, short enough
  *  that a stolen row is worthless by the time it is found. */
 export const OAUTH_REQUEST_TTL_MS = 10 * 60 * 1000;
 
 export interface OAuthDependencies {
+  /** The transaction these writes and their audit events commit within. */
+  readonly unitOfWork: IdentityUnitOfWork;
   readonly providers: OAuthProviderRegistry;
   readonly oauthRequests: OAuthRequestRepository;
   readonly identities: UserIdentityRepository;

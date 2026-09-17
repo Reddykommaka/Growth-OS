@@ -6,16 +6,18 @@
  * single-use tokens, replay guards) are tested against a real cluster rather than a fake.
  */
 export {
-  type ConfirmEnrolmentResult,
   completeMfaChallenge,
-  confirmTotpEnrolment,
   disableMfa,
-  type EnrolmentStart,
   type MfaChallengeOutcome,
   type MfaDependencies,
   regenerateRecoveryCodes,
-  startTotpEnrolment,
 } from './mfa.js';
+export {
+  type ConfirmEnrolmentResult,
+  confirmTotpEnrolment,
+  type EnrolmentStart,
+  startTotpEnrolment,
+} from './mfa-enrolment.js';
 export {
   type BeginOAuthInput,
   type BeginOAuthResult,
@@ -73,14 +75,17 @@ export {
   verifyEmail,
 } from './registration.js';
 export {
-  type AuthenticatedSession,
   authenticateSession,
   listSessions,
+  signOut,
+  signOutEverywhere,
+} from './session-lifecycle.js';
+export {
+  type AuthenticatedSession,
   type SessionLookup,
   type SignInDependencies,
   type SignInInput,
   type SignInResult,
   signIn,
-  signOut,
-  signOutEverywhere,
 } from './sign-in.js';
+export type { IdentityRepositories, IdentityUnitOfWork } from './unit-of-work.js';

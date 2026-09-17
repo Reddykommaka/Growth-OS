@@ -339,14 +339,48 @@ Written as the naive "no context ⇒ allow", every tenant's log would have been 
 the untenanted path; mutating it to that form fails the bounds test. The read rule is
 untouched, so platform rows stay invisible to every tenant.
 
-### Still open after 1.14
+### The identity unit of work (1.15)
 
-- **Identity has no unit of work.** Its repositories are built over the pool, so each call is
-  its own implicit transaction and there is no transaction for an audit row to join. The
-  organization services do have one and are coupled correctly; identity's audit writes would
-  commit independently, which is why identity is not yet wired to the real sink. Giving
-  identity a unit of work is the prerequisite, and it is a structural change rather than a
-  wiring one.
+Identity repositories accept a `Queryable`, which both a Pool and a PoolClient satisfy, so
+every service ran each write as its own implicit transaction. That is not merely untidy —
+several identity operations are multi-write sequences whose halves are dangerous apart:
+
+- `verifyEmail` consumes the token and then marks the address verified. Failing between them
+  leaves a consumed token and an unverified user, who can never verify again.
+- `completePasswordReset` consumes the token, sets the hash, clears the lockout and revokes
+  every session. Stopping after the hash leaves the attacker's session live through the
+  victim's password change.
+- `confirmTotpEnrolment` confirms the credential, flags the user and writes the recovery
+  codes. A partial apply leaves MFA half-on.
+
+`IdentityUnitOfWork` is a port over `withoutTenantContext` — the approved untenanted
+primitive, already pinned by an architecture test — not a second transaction mechanism.
+Identity tables are global (05 §3 level 1), so there is no `app.*` context to set; the port
+exists so the application layer can say "these writes are one unit" without importing `pg`.
+
+The service BODIES are unchanged. `bindToTransaction` rebinds only the repository keys a
+dependency bundle declares, so each service still receives the shape it was written against
+and the atomicity comes from what that shape is bound to. Threading a client through every
+helper would have been a far larger diff across logic that is not what is changing.
+
+**What is deliberately NOT transactional.** `authenticateSession` and `listSessions` are read
+paths; the one incidental write (`sessions.touch`) is already atomic as a single statement,
+and wrapping them would take a connection out of the pool on every authenticated request to
+buy nothing. OAuth's token exchange sits BETWEEN two units of work on purpose: the
+authorization request is consumed and committed first, so a replayed callback loses even when
+the exchange then fails, and the provider's latency never pins a connection.
+
+Verified by degrading the unit of work back to pool-per-call: five cases fail, each one a
+half-applied state.
+
+### Still open after 1.15
+
+- **Audit partition retention is not scheduled.** `ensure_audit_partitions` and
+  `detach_partitions_before` exist and are tested; nothing calls them periodically. This
+  belongs to the `apps/worker` scheduling work item rather than to audit or identity — the
+  machinery is complete and only a scheduler is missing. Until one exists, a deployment
+  running past the pre-created window would fail audit writes outright, so it should not be
+  left until the last Phase 1 item.
 - Invitation delivery is still a contract with no production implementation
   (`platform/notifications` pending).
 - No retention job runs yet: `ensure_audit_partitions` and `detach_partitions_before` exist
