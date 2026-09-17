@@ -6,6 +6,10 @@
  * application role cannot UPDATE or DELETE.
  */
 export {
+  type AuditSinkOptions,
+  createAuditSink,
+} from './adapter.js';
+export {
   canonicalBytes,
   canonicalJson,
   genesisHash,

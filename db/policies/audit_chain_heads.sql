@@ -13,18 +13,24 @@
 -- rejects, so the break is detectable — which is the property being bought, rather than
 -- prevention.
 --
+-- WHY USING AND WITH CHECK MATCH HERE (migration 0012). Advancing a chain means READING the
+-- head and then UPDATING it, so an untenanted writer needs to see the platform head it is
+-- about to move. A narrower USING would hide that row from the very transaction that has to
+-- chain from it, and the chain would silently restart at sequence 1 on every event — a break
+-- verification would report as a bad genesis, forever.
+--
 -- THE RESERVED ID. `01900000-0000-7000-8000-0000000000fe` is the platform chain, for
 -- security events that precede any tenant (a failed sign-in against an address belonging to
 -- nobody). Because this policy compares organization_id to the session's tenant, NO tenant
 -- session can read it — correct, since one tenant must not learn that an address it does not
 -- own failed to sign in.
 --
--- canonical-using:      (organization_id = app_current_organization_id())
--- canonical-with-check: (organization_id = app_current_organization_id())
+-- canonical-using:      app_may_write_audit(organization_id)
+-- canonical-with-check: app_may_write_audit(organization_id)
 
 ALTER TABLE audit_chain_heads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_chain_heads FORCE  ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON audit_chain_heads
-  USING      (organization_id = app_current_organization_id())
-  WITH CHECK (organization_id = app_current_organization_id());
+  USING      (app_may_write_audit(organization_id))
+  WITH CHECK (app_may_write_audit(organization_id));

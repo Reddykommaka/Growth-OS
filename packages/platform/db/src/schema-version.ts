@@ -5,7 +5,7 @@
 // traffic when the database is BEHIND this version (12-devops-architecture.md §5).
 
 /** The newest migration this build knows about. */
-export const EXPECTED_SCHEMA_VERSION = '0011_audit_events.sql';
+export const EXPECTED_SCHEMA_VERSION = '0012_platform_audit_chain.sql';
 
 /** Every migration this build knows about, in application order. */
 export const KNOWN_MIGRATIONS: readonly string[] = [
@@ -20,4 +20,5 @@ export const KNOWN_MIGRATIONS: readonly string[] = [
   '0009_oauth_authorization_requests.sql',
   '0010_oauth_provider_is_configuration.sql',
   '0011_audit_events.sql',
+  '0012_platform_audit_chain.sql',
 ];

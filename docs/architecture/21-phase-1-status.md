@@ -314,13 +314,39 @@ running), and the cross-tenant probe assumed every tenant table has an `id` colu
 UPDATE/DELETE unconditionally, crashing on an append-only table rather than recording that
 the statement was refused by privilege.
 
-### Still open after 1.13
+### The audit log was not actually connected (1.14)
 
-- **Untenanted identity events are not yet routed to the platform chain.** The reserved
-  chain, its policy consequence and the constant exist and are documented; the identity
-  services still record through the port without an organization for pre-tenant events
-  (registration, a failed sign-in against an unknown address). Wiring that is the remaining
-  piece of "authentication events are durably audited".
+Verifying the repository rather than the previous report turned up the gap that mattered:
+`createAuditRecorder` was constructed **only in tests**. The table, the chain, the policies
+and the port all existed and none of them were joined, so no invitation, key, sign-in or MFA
+action left a row in production. The only `AuditSink` implementation was an in-memory test
+harness.
+
+`createAuditSink` is the missing bridge. It writes through whatever `Queryable` it is handed,
+which makes atomicity the caller's to give: a transaction client couples the audit row to the
+change, a pool does not. `requireTransaction` turns the second case into a loud failure for
+callers that have a unit of work, probed with `SAVEPOINT` (legal only inside a transaction
+block) rather than inferred — `transaction_timestamp()` was the obvious check and is wrong,
+since it equals `statement_timestamp()` on the first statement of a transaction, reporting
+"no transaction" exactly when one has just opened.
+
+Migration 0012 lets pre-tenant events reach the platform chain. Under 0011 alone they could
+not be written at all — the policy compares `organization_id` to a NULL tenant context — so
+the log was silent about precisely the events an intrusion consists of. The widening is one
+clause and its bounds are the point: an untenanted session may write the reserved platform
+organization *and nothing else*, and a tenant session may not write platform rows at all.
+Written as the naive "no context ⇒ allow", every tenant's log would have been writable from
+the untenanted path; mutating it to that form fails the bounds test. The read rule is
+untouched, so platform rows stay invisible to every tenant.
+
+### Still open after 1.14
+
+- **Identity has no unit of work.** Its repositories are built over the pool, so each call is
+  its own implicit transaction and there is no transaction for an audit row to join. The
+  organization services do have one and are coupled correctly; identity's audit writes would
+  commit independently, which is why identity is not yet wired to the real sink. Giving
+  identity a unit of work is the prerequisite, and it is a structural change rather than a
+  wiring one.
 - Invitation delivery is still a contract with no production implementation
   (`platform/notifications` pending).
 - No retention job runs yet: `ensure_audit_partitions` and `detach_partitions_before` exist

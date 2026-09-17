@@ -25,6 +25,18 @@
 --   was supposed to leave the evidence. The event's own authorization is already decided by
 --   the action being audited.
 --
+-- THE PLATFORM CHAIN (migration 0012). The write rule is `app_may_write_audit`, which permits
+-- one thing beyond the tenant predicate: a row for the RESERVED platform organization, and
+-- only when there is NO tenant context. Both halves are load-bearing — a tenant session
+-- cannot write platform rows (its context is non-null and is not the reserved id), and an
+-- untenanted session cannot write any other organization's rows (the tenant clause is NULL
+-- for it, so the added clause is its only route and that clause pins one literal id). Written
+-- as the naive "no context ⇒ allow", every tenant's log would be writable from the untenanted
+-- path; an integration test asserts both directions.
+--
+-- The READ rule is deliberately NOT widened: platform rows stay invisible to every tenant
+-- session, so one tenant cannot learn that an address it does not own failed to sign in.
+--
 -- APPEND-ONLY IS A GRANT, NOT A POLICY. 05-data-architecture.md §9 requires the application
 -- role to hold INSERT and SELECT and nothing else. Migration 0001's ALTER DEFAULT PRIVILEGES
 -- grants UPDATE and DELETE on every table the migrator creates, so migration 0011 revokes
@@ -40,7 +52,7 @@
 -- partition directly and asserts it is refused.
 --
 -- canonical-using:      ((organization_id = app_current_organization_id()) AND ((workspace_id IS NULL) OR app_workspace_scope_is_all() OR (workspace_id = ANY (app_current_workspace_ids()))))
--- canonical-with-check: (organization_id = app_current_organization_id())
+-- canonical-with-check: app_may_write_audit(organization_id)
 
 ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_events FORCE  ROW LEVEL SECURITY;
@@ -54,4 +66,4 @@ CREATE POLICY tenant_isolation ON audit_events
       OR workspace_id = ANY (app_current_workspace_ids())
     )
   )
-  WITH CHECK (organization_id = app_current_organization_id());
+  WITH CHECK (app_may_write_audit(organization_id));
