@@ -131,3 +131,16 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 -- Readable by the application so /readyz can compare the deployed schema version against
 -- what the running code expects (12-devops-architecture.md §5).
 GRANT SELECT ON schema_migrations TO growth_os_app;
+
+-- The migration job needs the ledger it writes.
+--
+-- This migration is the bootstrap: it CREATEs growth_os_migrator, so it cannot itself run
+-- as that role, and it is applied by the provisioning superuser. Everything from 0002
+-- onward runs as the migrator, which therefore does not own this table and has no implicit
+-- privilege on it. Without this grant the job cannot record the first migration it applies
+-- — it fails on 0002, before any schema exists to inspect.
+--
+-- SELECT and INSERT only, deliberately. A runner that can UPDATE or DELETE its own history
+-- can be made to re-apply a migration silently, which is exactly the divergence the
+-- checksum column exists to catch.
+GRANT SELECT, INSERT ON schema_migrations TO growth_os_migrator;

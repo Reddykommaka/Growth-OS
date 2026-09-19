@@ -19,6 +19,17 @@ const checksum = (sql: string): string => createHash('sha256').update(sql, 'utf8
 /** The ledger cannot be consulted before it exists, so migration 0001 creates it. */
 const LEDGER = 'schema_migrations';
 
+/**
+ * The role that owns every object from 0002 onward.
+ *
+ * 0001 cannot run as this role — it CREATEs it, and the role is NOCREATEROLE — so the
+ * bootstrap migration is applied by whoever the connection is, and everything after it by
+ * the migrator. That is exactly the production shape, and it is what makes ownership in a
+ * test database match ownership in a deployed one: a migration that forgets to GRANT the
+ * application what it needs fails here rather than in production.
+ */
+const OWNER_ROLE = 'growth_os_migrator';
+
 export async function applyMigrations(
   connectionUrl: string,
   migrationsDir: string,
@@ -33,6 +44,7 @@ export async function applyMigrations(
 
   const applied: string[] = [];
   const skipped: string[] = [];
+  let owning = false;
 
   try {
     // Fail fast rather than queueing behind a lock held by something else
@@ -68,6 +80,20 @@ export async function applyMigrations(
         }
         skipped.push(migration.name);
         continue;
+      }
+
+      // Take the migrator's identity as soon as the role exists. Done per migration and
+      // by asking the catalogue rather than by filename, because "0001 is the bootstrap"
+      // is a fact about the schema, not about the ordinal.
+      if (!owning) {
+        const owner = await client.query<{ exists: boolean }>(
+          'SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists',
+          [OWNER_ROLE],
+        );
+        if (owner.rows[0]?.exists === true) {
+          await client.query(`SET ROLE ${OWNER_ROLE}`);
+          owning = true;
+        }
       }
 
       const started = Date.now();
