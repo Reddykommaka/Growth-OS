@@ -132,6 +132,12 @@ const PROBE_COLUMNS: Readonly<Record<string, Readonly<Record<string, string>>>> 
     last_sequence: '0',
     last_hash: `decode(repeat('00', 32), 'hex')`,
   },
+  usage_records: {
+    // Partition key again — same reason as audit_events.
+    recorded_at: 'now()',
+    capability_key: `'probe'`,
+    quantity: '1',
+  },
 };
 
 describe('structural check 3 — cross-tenant probes over the real schema', () => {

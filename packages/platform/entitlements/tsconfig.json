@@ -8,6 +8,8 @@
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.test.tsx"],
   "references": [
+    { "path": "../audit" },
+    { "path": "../authz" },
     {
       "path": "../types"
     },
