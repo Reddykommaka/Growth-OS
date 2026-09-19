@@ -32,6 +32,8 @@ the context, the choice, the alternatives, and the consequences we accepted.
 | [0017](0017-authentication-libraries.md) | Replace the unmaintained authentication libraries | Accepted |
 | [0018](0018-credentials-carry-their-tenant.md) | Credentials that precede a tenant context carry their tenant | Accepted |
 | [0019](0019-audit-in-transaction-not-outbox.md) | The audit row is written in the transaction, not through the outbox | Accepted |
+| [0020](0020-entitlements-are-capabilities.md) | Entitlements are capabilities resolved from scoped rules, not a plan tier | Accepted |
+| [0021](0021-partition-maintenance-in-the-deploy-pipeline.md) | Partition maintenance runs in the deploy pipeline; retention waits on archival | Accepted |
 
 ADR-0003 was revised before acceptance to add the team layer, following the approved
 agency-first customer decision. ADRs 0013–0016 record decisions introduced by that same

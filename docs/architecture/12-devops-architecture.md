@@ -83,14 +83,25 @@ rather than the size of the repository.
 ## 4. Deployment and migrations
 
 ```
- merge to main → build & sign image → deploy staging → migrate → smoke
+ merge to main → build & sign image → deploy staging → migrate → maintain → smoke
    → soak (30 min, error-budget watched) → manual approval → production
-   → migrate (separate gated job) → rolling deploy → smoke → watch
+   → migrate (separate gated job) → maintain → rolling deploy → smoke → watch
 ```
 
 - **Migrations are a discrete pre-deploy job** run with `growth_os_migrator`, never on
   application boot. Boot-time migration means N replicas racing the same DDL, and it means
   a bad migration takes the application down with it.
+- **Partition maintenance (`pnpm db:maintain`) is a second discrete job**, immediately after
+  migrate, with the same credential and the same "a failure stops the deploy" semantics. It
+  pre-creates monthly partitions three months ahead for every registered table and fails if a
+  partitioned table is unregistered or has fallen below two months of headroom. It is
+  idempotent, which is what makes the deploy cadence the schedule rather than an
+  approximation of one. A partitioned table with no partition covering `now()` rejects the
+  insert outright — for `audit_events` that is every audited write in the product failing at
+  once — so this is not housekeeping ([ADR-0021](../adr/0021-partition-maintenance-in-the-deploy-pipeline.md)).
+  `/readyz` carries a non-critical `partition-headroom` check for the case where deploys stop.
+  Retention (detach → archive → drop) deliberately does NOT run here; ADR-0021 records the
+  dependency on object-storage export and the exact acceptance condition.
 - **Expand/contract discipline** ([05](05-data-architecture.md) §11) is what makes rolling
   deploys safe: every migration must work with the *previous* application version, because
   both versions are live simultaneously during the roll.

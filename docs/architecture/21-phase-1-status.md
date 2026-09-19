@@ -373,15 +373,111 @@ the exchange then fails, and the provider's latency never pins a connection.
 Verified by degrading the unit of work back to pool-per-call: five cases fail, each one a
 half-applied state.
 
-### Still open after 1.15
+### Platform entitlements (1.16)
 
-- **Audit partition retention is not scheduled.** `ensure_audit_partitions` and
-  `detach_partitions_before` exist and are tested; nothing calls them periodically. This
-  belongs to the `apps/worker` scheduling work item rather than to audit or identity — the
-  machinery is complete and only a scheduler is missing. Until one exists, a deployment
-  running past the pre-created window would fail audit writes outright, so it should not be
-  left until the last Phase 1 item.
+Recorded as [ADR-0020](../adr/0020-entitlements-are-capabilities.md). The six concepts stay
+apart: authentication (who), authorization (may this actor), permission (the catalogue
+authorization consults), entitlement (what the organization bought), billing (what is owed)
+and usage (what was consumed). A protected operation passes the authorization check AND the
+entitlement check; neither substitutes for the other.
+
+`plan = 'free' | 'pro' | 'enterprise'` was rejected for a stated reason rather than a stylistic
+one: the primary customer is an agency, and an agency deal adds one capability and raises one
+limit. A tier enum turns every negotiation into a new plan, and answers "why is this blocked"
+with "their plan is not pro", which is not the question support asked.
+
+**Three limit kinds, and `counter` versus `gauge` is load-bearing.** A counter is consumed
+within a period and resets; a gauge is a population held at a point in time. Resetting a gauge
+would silently forgive an over-limit state; metering a gauge as consumption would let deleting
+and recreating a social account exhaust the plan.
+
+**Resolution is deterministic and carries its own explanation.** Precedence is workspace
+override → organization override → plan feature → catalogue fallback, and every decision
+reports the `source` that supplied it and the `rule` that produced it. A disabling override
+beats an enabling plan feature, so a capability can be switched off for one customer without
+inventing a plan. The catalogue default is a named source, not a hidden fallback.
+
+**No cache sits on the gating path,** and this was answered from the architecture rather than
+invented: [01-overview.md](01-overview.md) §5 already states "Entitlement checks | Strong at
+check time | Read in the same transaction as the gated write". The permission cache in
+[06](06-identity-and-access.md) §3 was deliberately NOT copied — a stale permission is revoked
+by a session change we control, a stale entitlement by a commercial event we do not, and a TTL
+there is exactly the stale privilege escalation the requirement forbids.
+
+**Consumption is one conditional `UPDATE`,** with the limit as a predicate on the statement
+that increments. Zero rows updated is the denial; there is no window between deciding and
+acting. Verified by mutation: dropping `AND ($6::bigint IS NULL OR used + $5 <= $6::bigint)`
+makes "twenty concurrent consumers against a limit of ten let exactly ten through" fail.
+
+**Billing is consumed through `SubscriptionReader`,** which returns a plan key and a period —
+not a provider object, a price or an invoice. `past_due` still resolves: cutting a customer off
+on one failed charge turns a payment retry into their outage. Suspension is a deliberate move
+to `canceled`, or a disabling override.
+
+Granting, replacing and removing an override are three distinct audited actions gated by
+`billing.subscription:manage`, and the metadata carries the capability, the shape of the grant
+and the mandatory `reason` — never an amount, an instrument or a provider identifier.
+
+### The audit retention scheduler, resolved (1.16)
+
+The risk recorded after 1.15 is closed for pre-creation and explicitly scoped for retention.
+Recorded as [ADR-0021](../adr/0021-partition-maintenance-in-the-deploy-pipeline.md).
+
+`apps/worker` was the obvious home and is the wrong one, for a reason that only appears on
+inspection: the ensure functions must run as `growth_os_migrator`, the only role that may
+create tables. A worker connects as `growth_os_app`, which holds no CREATE on the schema by
+design. "Move it to the worker" was therefore a request to give the request-serving role the
+ability to create and alter tables — a much larger change than the scheduling problem
+justifies.
+
+- **Pre-creation runs now**, as `pnpm db:maintain`, a discrete deploy step after the migration
+  job with the same credential and the same stop-the-deploy semantics.
+- **A registry, not a list in the job.** `partition_maintenance` (migration 0014) maps each
+  partitioned parent to the function that creates AND hardens its partitions.
+  `unregistered_partitioned_tables()` fails the job before it creates anything, so adding a
+  partitioned table and forgetting it is loud rather than invisible for three months.
+- **The per-table dispatch is a security property, not tidiness.** A partition is a table in
+  its own right and migration 0001's default privileges grant the application full DML on it.
+  A job calling `ensure_month_partitions()` generically would manufacture an unpoliced,
+  application-writable copy of the audit log every month.
+- **`partition-headroom` is a non-critical readiness check.** Headroom is identical on every
+  replica, so a critical check would empty the load balancer everywhere at once and take down
+  every request that never touches the affected table.
+- **Retention is deferred for a stated reason, not for convenience.** [05](05-data-architecture.md)
+  §10 requires cold partitions to reach object storage as Parquet BEFORE removal, and neither
+  object storage nor a Parquet writer exists. The policy is recorded as data
+  (`retention_months`, `archive_before_drop`), and ADR-0021 states the exact production
+  acceptance condition. `usage_records.retention_months` is NULL rather than defaulted: its
+  rows are the evidence behind a metered invoice, which makes the Operational class (90 days)
+  plainly wrong and the Financial class (7 years) plausible, and guessing would either destroy
+  billing evidence or over-retain personal data.
+
+### The test harness was not testing the privilege model it documented (1.16)
+
+`createTemplateDatabase` claimed "migrations run as the migrator role — if the harness migrated
+as a superuser it would not exercise the privilege model we actually deploy", and then migrated
+as the superuser. Every object in every test database was owned by a role that bypasses all of
+it.
+
+Corrected: the runner takes `SET ROLE growth_os_migrator` as soon as the role exists, which is
+from 0002 onward — 0001 CREATEs the role and cannot run as it. That is the production shape.
+
+It found a real defect immediately. Migration 0001 grants the application `SELECT` on
+`schema_migrations` and grants the migrator nothing at all, so the migration job as documented
+could not record the first migration it applied; it would have failed on 0002 against a fresh
+production database. 0001 now grants the migrator `SELECT, INSERT` — and not `UPDATE` or
+`DELETE`, because a runner that can rewrite its own history can be made to re-apply a migration
+silently, which is what the checksum column exists to prevent.
+
+### Still open after 1.16
+
+- **Retention still does not run.** Pre-creation does, on every deploy, and headroom is
+  monitored — but nothing ages any partition out, and no table shrinks. ADR-0021 holds the
+  acceptance condition; it is blocked on object storage, which is a Phase 2 dependency.
+- **The maintenance schedule is the deploy cadence.** An environment that stops deploying for
+  three months walks into the cliff with only the readiness warning in front of it.
+- **`usage_records.retention_months` is unset** pending the billing work item's decision on its
+  retention class.
 - Invitation delivery is still a contract with no production implementation
   (`platform/notifications` pending).
-- No retention job runs yet: `ensure_audit_partitions` and `detach_partitions_before` exist
-  and are tested, but nothing schedules them (`apps/worker` scheduling is a later item).
+- `apps/worker` still has no runtime, so nothing in Phase 1 yet runs on a schedule of its own.
