@@ -3,7 +3,7 @@
  * not match the code's expectation.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { databaseCheck, redisCheck, schemaVersionCheck } from './checks.js';
+import { databaseCheck, partitionHeadroomCheck, redisCheck, schemaVersionCheck } from './checks.js';
 import { type HealthCheck, readinessHttpStatus, runReadiness } from './index.js';
 
 const KNOWN = ['0001_a.sql', '0002_b.sql', '0003_c.sql'];
@@ -150,5 +150,62 @@ describe('individual checks', () => {
   it('redis check warns on an unexpected reply', async () => {
     const result = await redisCheck({ ping: async () => 'nope' }).run(new AbortController().signal);
     expect(result.status).toBe('warn');
+  });
+});
+
+describe('partition headroom', () => {
+  const signal = () => new AbortController().signal;
+  const headroomSource = (...readings: { parentTable: string; monthsAhead: number }[]) => ({
+    headroom: async () => readings,
+  });
+
+  it('passes with the runway the maintenance job leaves', async () => {
+    const result = await partitionHeadroomCheck(
+      headroomSource({ parentTable: 'audit_events', monthsAhead: 3 }),
+    ).run(signal());
+    expect(result.status).toBe('pass');
+    expect(result.observedValue).toBe('audit_events=3');
+  });
+
+  it('warns before the cliff, not at it', async () => {
+    const result = await partitionHeadroomCheck(
+      headroomSource({ parentTable: 'audit_events', monthsAhead: 1 }),
+    ).run(signal());
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('audit_events');
+  });
+
+  it('fails once a table has no partition covering now()', async () => {
+    const result = await partitionHeadroomCheck(
+      headroomSource(
+        { parentTable: 'audit_events', monthsAhead: -1 },
+        { parentTable: 'usage_records', monthsAhead: 3 },
+      ),
+    ).run(signal());
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('refusing writes');
+    // Both readings are reported, so an operator sees the scope rather than one name.
+    expect(result.observedValue).toBe('audit_events=-1 usage_records=3');
+  });
+
+  it('warns rather than passing when nothing is registered', async () => {
+    const result = await partitionHeadroomCheck(headroomSource()).run(signal());
+    expect(result.status).toBe('warn');
+  });
+
+  /**
+   * The property that keeps a database problem from becoming a total outage. Headroom is a
+   * fact about the schema, so it is identical on every replica: a critical check here would
+   * empty the load balancer everywhere at once, including for the requests that never touch
+   * the affected table.
+   */
+  it('never removes a replica from service, even when a table is exhausted', async () => {
+    const check = partitionHeadroomCheck(
+      headroomSource({ parentTable: 'audit_events', monthsAhead: -1 }),
+    );
+    expect(check.critical).toBe(false);
+    const report = await runReadiness({ checks: [check], version });
+    expect(report.status).toBe('warn');
+    expect(readinessHttpStatus(report)).toBe(200);
   });
 });

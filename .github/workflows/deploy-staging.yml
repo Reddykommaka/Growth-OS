@@ -1,7 +1,8 @@
 name: Deploy staging
 
 # 12-devops-architecture.md §4:
-#   merge to main → build & sign image → migrate (discrete, gated) → deploy → smoke → soak
+#   merge to main → build & sign image → migrate (discrete, gated) → maintain partitions
+#   → deploy → smoke → soak
 #
 # The migration job is a SEPARATE step that must succeed before any replica starts. A failed
 # migration stops the deploy and the previous release keeps serving — safe because every
@@ -96,6 +97,13 @@ jobs:
           # growth_os_migrator is the ONLY role with BYPASSRLS and is used nowhere else.
           DATABASE_MIGRATOR_URL: ${{ secrets.DATABASE_MIGRATOR_URL }}
         run: node tools/scripts/migrate.mjs db/migrations
+      - name: Partition maintenance
+        env:
+          # Same credential and the same job: pre-creation must run as the migrator, which is
+          # the only role that may create tables. ADR-0021 records why this is here and not in
+          # a worker. Idempotent, so running it on every deploy IS the schedule.
+          DATABASE_MIGRATOR_URL: ${{ secrets.DATABASE_MIGRATOR_URL }}
+        run: node tools/scripts/maintain-partitions.mjs
 
   deploy:
     name: Deploy

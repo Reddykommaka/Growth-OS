@@ -28,6 +28,8 @@
     "e2e": "turbo run e2e",
     "migrate": "node tools/scripts/migrate.mjs db/migrations",
     "migrate:dry-run": "node tools/scripts/migrate.mjs db/migrations --dry-run",
+    "db:maintain": "node tools/scripts/maintain-partitions.mjs",
+    "db:maintain:check": "node tools/scripts/maintain-partitions.mjs --check",
     "lint:schema-version": "node tools/scripts/generate-schema-version.mjs --check"
   },
   "devDependencies": {
