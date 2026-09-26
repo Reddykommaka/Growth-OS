@@ -13,10 +13,10 @@ import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { APP_ROLE } from './database.js';
 import { acquireTestDatabase, stopSharedCluster, type TestDatabase } from './harness.js';
+import { checkRolePosture } from './roles.js';
 import {
   checkFailsClosedWithoutContext,
   checkRlsCompleteness,
-  checkRolePosture,
   probeCrossTenantAccess,
   tenantScopedTables,
 } from './structural.js';

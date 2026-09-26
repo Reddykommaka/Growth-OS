@@ -469,6 +469,65 @@ production database. 0001 now grants the migrator `SELECT, INSERT` — and not `
 `DELETE`, because a runner that can rewrite its own history can be made to re-apply a migration
 silently, which is what the checksum column exists to prevent.
 
+### The transactional event spine (1.18)
+
+ADR-0007's `outbox_events` did not exist. Every module that will emit a domain event — and
+`platform/notifications` first among them — needs it, so it lands before them rather than
+alongside the first caller.
+
+**Not partitioned, unlike `audit_events` and `usage_records`.** This is a queue: rows are
+written, published and pruned, so its steady-state size is a function of relay lag rather than
+of tenant age. Partitioning would put a routing decision on the hottest write path in the
+system and force the relay's `FOR UPDATE SKIP LOCKED` scan across every partition. 05 §7 lists
+the partitioned tables and this is deliberately not among them.
+
+**`published_at` and `attempts` are the relay's state, not the tenant's.** The application role
+holds `SELECT, INSERT` and nothing else. A session that could UPDATE this table would be able
+to mark its own event published without it ever being delivered — cancelling its own side
+effects with a statement RLS would happily allow, because the row passes the tenant predicate.
+A policy cannot express this; the absent privilege can.
+
+**A third role, `growth_os_relay`.** The relay reads across every organization by design, so it
+cannot run under the tenant predicate. Neither existing role would do: `growth_os_app` would
+need BYPASSRLS, dissolving the isolation model to solve a background-job problem, and
+`growth_os_migrator` owns every table and holds DDL rights a long-lived worker has no business
+carrying. The relay is BYPASSRLS and nothing else — no CREATE on the schema, and grants on
+exactly one table, asserted by *equality* so a widened grant fails the sweep.
+
+**Per-organization ordering needs an advisory lock, not `SKIP LOCKED`.** Row-level
+`FOR UPDATE SKIP LOCKED` does not give it: worker A locks an organization's event 1, worker B
+skips it, takes event 2 and publishes it first. A transaction-scoped advisory lock keyed on the
+organization makes the serialization explicit, and other organizations still run fully parallel.
+
+**Publish before mark, so delivery is at-least-once.** A crash between them republishes the
+event, which every consumer must tolerate (idempotent on event id). The other order loses events
+on exactly the same crash, and a lost event is unrecoverable where a duplicate is merely handled.
+
+**Dead-lettering is not optional.** Per-organization ordering means a failing event blocks every
+later event for that organization — correct until the failure is permanent, at which point one
+poison payload has silently stopped a tenant's entire event stream. Past a threshold the row
+moves to a terminal `dead_lettered_at` state: not published (that would claim a delivery that
+never happened), not deleted, and excluded from the lag signal so the lag alert stays meaningful.
+
+**An event may reference a secret and never carry one.** A payload reaches Redis, consumer logs
+and the dead-letter queue — outside the transaction's blast radius entirely — so the publisher
+refuses a payload with a forbidden key at any depth, while allowing `apiKeyId` and `tokenHash`,
+which name a secret without being one.
+
+`outbox-lag` joins `partition-headroom` as a non-critical readiness check, for a sharper version
+of the same reason: the outbox exists so that a queue failure degrades throughput rather than
+correctness, and refusing traffic would convert the degradation the design survives into the
+outage it avoids.
+
+Verified by mutation: granting the lock unconditionally, continuing past a failure, granting the
+application UPDATE, and widening the relay's grants each fail a test.
+
+### Still open after 1.18
+
+- **Nothing consumes the events yet.** The relay is a function, not a process: `apps/worker` has
+  no runtime, and `EventSink` has no BullMQ implementation. Events accumulate in Postgres, which
+  is the designed failure mode rather than a broken one — but it is not delivery.
+
 ### Still open after 1.16
 
 - **Retention still does not run.** Pre-creation does, on every deploy, and headroom is

@@ -180,3 +180,89 @@ export function partitionHeadroomCheck(
     },
   };
 }
+
+export interface OutboxLagReading {
+  readonly pending: number;
+  /** Null when nothing is pending — distinct from zero seconds of lag. */
+  readonly oldestSeconds: number | null;
+  readonly deadLettered: number;
+}
+
+export interface OutboxLagSource {
+  lag(): Promise<OutboxLagReading>;
+}
+
+export interface OutboxLagThresholds {
+  /** Seconds of lag above which the relay is behind enough to say so. */
+  readonly warnSeconds?: number;
+  /** Seconds of lag that means the relay has stopped, not merely slowed. */
+  readonly failSeconds?: number;
+  /** Dead-letter depth above which a human is needed. */
+  readonly warnDeadLettered?: number;
+}
+
+/**
+ * Relay lag, which 08 §2 requires alerting on.
+ *
+ * WHY LAG IS MEASURED IN AGE, NOT DEPTH. A queue holding ten thousand events that drains in a
+ * second is healthy; one holding three events that have sat for an hour is an incident. Depth
+ * is reported for context and the thresholds are on age.
+ *
+ * NOT CRITICAL, for the same reason the partition-headroom check is not: relay lag is a fact
+ * about one shared table, identical on every replica, so a critical check would empty the load
+ * balancer everywhere at once. Worse, it would do so for a condition that makes writes NO less
+ * correct — the outbox exists precisely so that a stalled relay degrades throughput rather than
+ * correctness. Refusing traffic would convert the degradation the design was built to survive
+ * into the outage it was built to avoid.
+ *
+ * DEAD-LETTER DEPTH IS A SEPARATE SIGNAL, never folded into lag. A dead-lettered event will
+ * never be published, so counting it as lag leaves the lag threshold permanently exceeded — and
+ * a permanently firing alert is how a real backlog goes unnoticed.
+ */
+export function outboxLagCheck(
+  source: OutboxLagSource,
+  thresholds: OutboxLagThresholds = {},
+): HealthCheck {
+  const warnSeconds = thresholds.warnSeconds ?? 60;
+  const failSeconds = thresholds.failSeconds ?? 600;
+  const warnDeadLettered = thresholds.warnDeadLettered ?? 1;
+
+  return {
+    name: 'outbox-lag',
+    critical: false,
+    async run() {
+      const reading = await source.lag();
+      const age = reading.oldestSeconds ?? 0;
+      const observed =
+        `pending=${reading.pending} oldest=${reading.oldestSeconds ?? 'none'} ` +
+        `dead=${reading.deadLettered}`;
+
+      if (age >= failSeconds) {
+        return {
+          status: 'fail',
+          observedValue: observed,
+          detail:
+            `the oldest unpublished event is ${Math.round(age)}s old. The relay has stopped, ` +
+            'not slowed: no domain event has reached a consumer since then.',
+        };
+      }
+      if (age >= warnSeconds) {
+        return {
+          status: 'warn',
+          observedValue: observed,
+          detail: `the relay is ${Math.round(age)}s behind.`,
+        };
+      }
+      if (reading.deadLettered >= warnDeadLettered) {
+        return {
+          status: 'warn',
+          observedValue: observed,
+          detail:
+            `${reading.deadLettered} event(s) are dead-lettered and will never be published ` +
+            'without a replay. Inspect and replay them.',
+        };
+      }
+      return { status: 'pass', observedValue: observed };
+    },
+  };
+}

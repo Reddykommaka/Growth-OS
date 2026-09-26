@@ -7,7 +7,7 @@
  */
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { APP_ROLE, MIGRATOR_ROLE, withRollback } from './database.js';
+import { APP_ROLE, MIGRATOR_ROLE, RELAY_ROLE, withRollback } from './database.js';
 import { acquireTestDatabase, stopSharedCluster, type TestDatabase } from './harness.js';
 
 let db: TestDatabase;
@@ -64,14 +64,29 @@ describe('role posture — structural test 2 (11-testing-architecture.md §4)', 
     expect(result.rows[0]).toEqual({ rolsuper: false, rolcreaterole: false, rolcreatedb: false });
   });
 
-  it('only the migrator bypasses RLS among deployed roles', async () => {
-    // A prefix scan rather than an equality check on two known names: this also catches a
-    // NEW growth_os_* role being added later with BYPASSRLS.
+  it('exactly two deployed roles bypass RLS, and each for a stated reason', async () => {
+    // A prefix scan rather than an equality check on known names: this also catches a NEW
+    // growth_os_* role being added later with BYPASSRLS.
+    //
+    //   growth_os_migrator  applies migrations; owns the schema.
+    //   growth_os_relay     publishes the outbox across every tenant (ADR-0007). It is the
+    //                       bounded exception: no CREATE on the schema, and grants on only the
+    //                       tables it relays, asserted below.
     const result = await db.pool.query<{ rolname: string }>(
       'SELECT rolname FROM pg_roles WHERE rolbypassrls AND rolname LIKE $1 ORDER BY rolname',
       ['growth\\_os\\_%'],
     );
-    expect(result.rows.map((r) => r.rolname)).toEqual([MIGRATOR_ROLE]);
+    expect(result.rows.map((r) => r.rolname)).toEqual([MIGRATOR_ROLE, RELAY_ROLE]);
+  });
+
+  it('the relay holds no CREATE on the schema, so BYPASSRLS is all it gains', async () => {
+    // Widening the allowlist above must not be a free pass. A BYPASSRLS role that can also
+    // create objects has stopped being a bounded exception and become a second superuser.
+    const result = await db.pool.query<{ has: boolean }>(
+      `SELECT has_schema_privilege($1, 'public', 'CREATE') AS has`,
+      [RELAY_ROLE],
+    );
+    expect(result.rows[0]?.has).toBe(false);
   });
 
   it('the application role cannot create objects in the public schema', async () => {

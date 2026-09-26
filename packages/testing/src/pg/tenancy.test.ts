@@ -11,10 +11,10 @@
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { acquireTestDatabase, stopSharedCluster, type TestDatabase } from './harness.js';
+import { bypassRlsRoleReach, checkRolePosture } from './roles.js';
 import {
   checkFailsClosedWithoutContext,
   checkRlsCompleteness,
-  checkRolePosture,
   probeCrossTenantAccess,
   tenantScopedTables,
 } from './structural.js';
@@ -104,6 +104,25 @@ describe('structural check 1 — every tenant table is isolated', () => {
 describe('structural check 2 — role posture', () => {
   it('reports no findings', async () => {
     expect(await checkRolePosture(db.pool)).toEqual([]);
+  });
+
+  /**
+   * BYPASSRLS removes the tenant predicate everywhere, so the ONLY thing still bounding the
+   * relay is its grants. Asserting equality rather than inclusion is the point: a grant added
+   * without updating this list is exactly the change that would otherwise go unnoticed, and it
+   * would silently hand a long-lived background process read access to tenant data.
+   */
+  it('the relay role reaches exactly the tables it relays', async () => {
+    expect(await bypassRlsRoleReach(db.pool, 'growth_os_relay')).toEqual(['outbox_events']);
+  });
+
+  it('flags a BYPASSRLS role that is not on the allowlist', async () => {
+    // Proves the allowlist is doing work. Without this, widening it to add the relay could
+    // have been widened to anything.
+    const findings = await checkRolePosture(db.pool, ['audit_events'], ['growth_os_migrator']);
+    expect(findings).toEqual([
+      { role: 'growth_os_relay', problem: 'unexpected role has BYPASSRLS' },
+    ]);
   });
 });
 

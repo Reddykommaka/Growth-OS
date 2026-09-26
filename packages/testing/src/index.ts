@@ -19,6 +19,7 @@ export {
   createTemplateDatabase,
   dropDatabase,
   MIGRATOR_ROLE,
+  RELAY_ROLE,
   setTenantContext,
   TEMPLATE_DATABASE,
   type TenantContext,
@@ -32,13 +33,16 @@ export {
 } from './pg/harness.js';
 export { applyMigrations, currentSchemaVersion, type MigrationResult } from './pg/migrate.js';
 export {
+  bypassRlsRoleReach,
+  checkRolePosture,
+  type RolePostureFinding,
+} from './pg/roles.js';
+export {
   checkFailsClosedWithoutContext,
   checkRlsCompleteness,
-  checkRolePosture,
   type IsolationProbeResult,
   probeCrossTenantAccess,
   type RlsFinding,
-  type RolePostureFinding,
   TENANT_COLUMN,
   tenantScopedTables,
 } from './pg/structural.js';

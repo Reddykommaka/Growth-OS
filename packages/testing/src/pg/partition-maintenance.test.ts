@@ -14,13 +14,9 @@ import { acquireTestDatabase, stopSharedCluster, type TestDatabase } from './har
 let db: TestDatabase;
 let migrator: Client;
 
-/** The migrator role, which is the only one the maintenance job ever runs as. */
-const asMigrator = (adminUrl: string): string =>
-  adminUrl.replace(/^postgres:\/\/[^@]*@/, 'postgres://growth_os_migrator@');
-
 beforeAll(async () => {
   db = await acquireTestDatabase();
-  migrator = new Client({ connectionString: asMigrator(db.adminUrl) });
+  migrator = new Client({ connectionString: db.migratorUrl });
   await migrator.connect();
 }, 120_000);
 

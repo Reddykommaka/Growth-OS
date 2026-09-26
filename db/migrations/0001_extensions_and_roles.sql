@@ -57,6 +57,22 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'growth_os_migrator') THEN
     CREATE ROLE growth_os_migrator NOLOGIN BYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
   END IF;
+  -- growth_os_relay — the outbox relay (ADR-0007, migration 0015).
+  --
+  -- It reads across every organization by design, so it cannot run under the tenant
+  -- predicate. Neither existing role will do: growth_os_app would need BYPASSRLS, which would
+  -- dissolve the isolation model to solve a background-job problem, and growth_os_migrator
+  -- owns every table and holds DDL rights a long-lived worker process has no business
+  -- carrying. BYPASSRLS buys one thing here and the role holds nothing else — no CREATE on the
+  -- schema, and grants on only the tables the relay touches, given in 0015.
+  --
+  -- CREATED HERE, NOT IN 0015, because role creation is provisioning: 0015 runs as
+  -- growth_os_migrator, which is NOCREATEROLE, so it cannot create a role at all. This
+  -- migration is the bootstrap, applied by the provisioning superuser, and it is the only
+  -- place in the schema where a role can come into existence.
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'growth_os_relay') THEN
+    CREATE ROLE growth_os_relay NOLOGIN BYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+  END IF;
 END
 $$;
 
@@ -64,6 +80,7 @@ $$;
 -- provisioning script. The application role must never acquire BYPASSRLS by accident.
 ALTER ROLE growth_os_app       NOBYPASSRLS NOSUPERUSER;
 ALTER ROLE growth_os_migrator  BYPASSRLS   NOSUPERUSER;
+ALTER ROLE growth_os_relay      BYPASSRLS   NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
 -- ---------------------------------------------------------------------------
 -- Schema privileges

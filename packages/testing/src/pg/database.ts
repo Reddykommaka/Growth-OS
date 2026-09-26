@@ -15,6 +15,8 @@ export const TEMPLATE_DATABASE = 'growth_os_template';
 /** The RLS-enforced role. Tests connect as this, exactly as production does. */
 export const APP_ROLE = 'growth_os_app';
 export const MIGRATOR_ROLE = 'growth_os_migrator';
+/** The relay role (migration 0015). BYPASSRLS, four tables, no DDL. */
+export const RELAY_ROLE = 'growth_os_relay';
 
 async function withSuperuser<T>(
   cluster: ClusterHandle,
@@ -55,6 +57,7 @@ export async function createTemplateDatabase(
     // password would put one in version control.
     await client.query(`ALTER ROLE ${APP_ROLE} LOGIN`);
     await client.query(`ALTER ROLE ${MIGRATOR_ROLE} LOGIN`);
+    await client.query(`ALTER ROLE ${RELAY_ROLE} LOGIN`);
     // Template databases must have no other sessions when cloned.
     await client.query(`ALTER DATABASE ${TEMPLATE_DATABASE} IS_TEMPLATE true`);
   });
@@ -67,6 +70,7 @@ export async function cloneDatabase(cluster: ClusterHandle): Promise<string> {
     await client.query(`CREATE DATABASE ${name} TEMPLATE ${TEMPLATE_DATABASE}`);
     await client.query(`GRANT ALL ON DATABASE ${name} TO ${MIGRATOR_ROLE}`);
     await client.query(`GRANT CONNECT ON DATABASE ${name} TO ${APP_ROLE}`);
+    await client.query(`GRANT CONNECT ON DATABASE ${name} TO ${RELAY_ROLE}`);
   });
   return name;
 }

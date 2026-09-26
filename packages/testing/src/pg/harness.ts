@@ -6,7 +6,14 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { Pool } from 'pg';
 import { type ClusterHandle, startCluster } from './cluster.js';
-import { cloneDatabase, createAppPool, createTemplateDatabase, dropDatabase } from './database.js';
+import {
+  cloneDatabase,
+  createAppPool,
+  createTemplateDatabase,
+  dropDatabase,
+  MIGRATOR_ROLE,
+  RELAY_ROLE,
+} from './database.js';
 
 export interface TestDatabase {
   readonly name: string;
@@ -14,6 +21,14 @@ export interface TestDatabase {
   readonly url: string;
   /** Superuser URL — for harness-level assertions about roles and privileges only. */
   readonly adminUrl: string;
+  /**
+   * The migrator's URL. Supplied rather than derived by the caller: three test files were
+   * each rewriting the admin URL's user with their own regex, which is three places to get
+   * a role name wrong.
+   */
+  readonly migratorUrl: string;
+  /** The relay's URL (migration 0015). BYPASSRLS, four tables, no DDL. */
+  readonly relayUrl: string;
   close(): Promise<void>;
 }
 
@@ -72,6 +87,8 @@ export async function acquireTestDatabase(): Promise<TestDatabase> {
     pool,
     url: handle.url(name, 'growth_os_app'),
     adminUrl: handle.url(name),
+    migratorUrl: handle.url(name, MIGRATOR_ROLE),
+    relayUrl: handle.url(name, RELAY_ROLE),
     close: async () => {
       await pool.end();
       await dropDatabase(handle, name);

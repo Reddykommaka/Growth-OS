@@ -3,7 +3,13 @@
  * not match the code's expectation.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { databaseCheck, partitionHeadroomCheck, redisCheck, schemaVersionCheck } from './checks.js';
+import {
+  databaseCheck,
+  outboxLagCheck,
+  partitionHeadroomCheck,
+  redisCheck,
+  schemaVersionCheck,
+} from './checks.js';
 import { type HealthCheck, readinessHttpStatus, runReadiness } from './index.js';
 
 const KNOWN = ['0001_a.sql', '0002_b.sql', '0003_c.sql'];
@@ -203,6 +209,57 @@ describe('partition headroom', () => {
     const check = partitionHeadroomCheck(
       headroomSource({ parentTable: 'audit_events', monthsAhead: -1 }),
     );
+    expect(check.critical).toBe(false);
+    const report = await runReadiness({ checks: [check], version });
+    expect(report.status).toBe('warn');
+    expect(readinessHttpStatus(report)).toBe(200);
+  });
+});
+
+describe('outbox lag', () => {
+  const signal = () => new AbortController().signal;
+  const lagSource = (pending: number, oldestSeconds: number | null, deadLettered = 0) => ({
+    lag: async () => ({ pending, oldestSeconds, deadLettered }),
+  });
+
+  it('passes on an empty outbox', async () => {
+    const result = await outboxLagCheck(lagSource(0, null)).run(signal());
+    expect(result.status).toBe('pass');
+    expect(result.observedValue).toBe('pending=0 oldest=none dead=0');
+  });
+
+  it('passes on a deep queue that is keeping up', async () => {
+    // Depth is not lag. Ten thousand events that drain in a second are healthy; thresholding
+    // on depth would page for a busy minute.
+    const result = await outboxLagCheck(lagSource(10_000, 2)).run(signal());
+    expect(result.status).toBe('pass');
+  });
+
+  it('warns on a shallow queue that has stopped moving', async () => {
+    const result = await outboxLagCheck(lagSource(3, 120)).run(signal());
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('120s behind');
+  });
+
+  it('fails the check once the relay has stopped rather than slowed', async () => {
+    const result = await outboxLagCheck(lagSource(3, 900)).run(signal());
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('has stopped');
+  });
+
+  it('warns on dead-lettered events even when lag is healthy', async () => {
+    const result = await outboxLagCheck(lagSource(0, null, 2)).run(signal());
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('dead-lettered');
+  });
+
+  /**
+   * The property that keeps a stalled relay from becoming an outage. The outbox exists so that
+   * a queue failure degrades throughput rather than correctness; refusing traffic would convert
+   * the degradation the design survives into the outage it avoids.
+   */
+  it('never removes a replica from service, however far behind the relay is', async () => {
+    const check = outboxLagCheck(lagSource(50_000, 86_400));
     expect(check.critical).toBe(false);
     const report = await runReadiness({ checks: [check], version });
     expect(report.status).toBe('warn');
