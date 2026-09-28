@@ -181,54 +181,75 @@ export function partitionHeadroomCheck(
   };
 }
 
-export interface OutboxLagReading {
+export interface QueueLagReading {
   readonly pending: number;
   /** Null when nothing is pending — distinct from zero seconds of lag. */
   readonly oldestSeconds: number | null;
   readonly deadLettered: number;
 }
 
-export interface OutboxLagSource {
-  lag(): Promise<OutboxLagReading>;
+export interface QueueLagSource {
+  lag(): Promise<QueueLagReading>;
 }
 
-export interface OutboxLagThresholds {
-  /** Seconds of lag above which the relay is behind enough to say so. */
+export interface QueueLagThresholds {
+  /** Seconds of lag above which the queue is behind enough to say so. */
   readonly warnSeconds?: number;
-  /** Seconds of lag that means the relay has stopped, not merely slowed. */
+  /** Seconds of lag that means the drainer has stopped, not merely slowed. */
   readonly failSeconds?: number;
   /** Dead-letter depth above which a human is needed. */
   readonly warnDeadLettered?: number;
 }
 
+/** Retained as the name the outbox source is read under. See `queueLagCheck`. */
+export type OutboxLagReading = QueueLagReading;
+export type OutboxLagSource = QueueLagSource;
+export type OutboxLagThresholds = QueueLagThresholds;
+
+/** What the queue holds, and what a stalled drainer means for it. */
+export interface QueueDescription {
+  readonly name: string;
+  /** Singular noun for the queued thing: "event", "message". */
+  readonly item: string;
+  /** What a full stall means, in a sentence an operator can act on. */
+  readonly stalled: string;
+}
+
 /**
- * Relay lag, which 08 §2 requires alerting on.
+ * Lag on a drain-and-mark queue. 08 §2 requires alerting on it.
  *
- * WHY LAG IS MEASURED IN AGE, NOT DEPTH. A queue holding ten thousand events that drains in a
- * second is healthy; one holding three events that have sat for an hour is an incident. Depth
- * is reported for context and the thresholds are on age.
+ * WHY LAG IS MEASURED IN AGE, NOT DEPTH. A queue holding ten thousand items that drains in a
+ * second is healthy; one holding three that have sat for an hour is an incident. Depth is
+ * reported for context and the thresholds are on age.
  *
- * NOT CRITICAL, for the same reason the partition-headroom check is not: relay lag is a fact
+ * NOT CRITICAL, for the same reason the partition-headroom check is not: queue lag is a fact
  * about one shared table, identical on every replica, so a critical check would empty the load
  * balancer everywhere at once. Worse, it would do so for a condition that makes writes NO less
- * correct — the outbox exists precisely so that a stalled relay degrades throughput rather than
- * correctness. Refusing traffic would convert the degradation the design was built to survive
- * into the outage it was built to avoid.
+ * correct — the outbox exists precisely so that a stalled drainer degrades throughput rather
+ * than correctness. Refusing traffic would convert the degradation the design was built to
+ * survive into the outage it was built to avoid.
  *
- * DEAD-LETTER DEPTH IS A SEPARATE SIGNAL, never folded into lag. A dead-lettered event will
- * never be published, so counting it as lag leaves the lag threshold permanently exceeded — and
- * a permanently firing alert is how a real backlog goes unnoticed.
+ * DEAD-LETTER DEPTH IS A SEPARATE SIGNAL, never folded into lag. A dead-lettered item will never
+ * be drained, so counting it as lag leaves the lag threshold permanently exceeded — and a
+ * permanently firing alert is how a real backlog goes unnoticed.
+ *
+ * ONE IMPLEMENTATION, TWO QUEUES. `outbox_events` and `outbound_messages` are drained by
+ * different code with different failure semantics, but they are monitored identically and the
+ * reasoning above applies word for word to both. Two copies of it would be two places for the
+ * thresholds to drift apart, and a monitoring difference between them would be an accident
+ * rather than a decision.
  */
-export function outboxLagCheck(
-  source: OutboxLagSource,
-  thresholds: OutboxLagThresholds = {},
+export function queueLagCheck(
+  queue: QueueDescription,
+  source: QueueLagSource,
+  thresholds: QueueLagThresholds = {},
 ): HealthCheck {
   const warnSeconds = thresholds.warnSeconds ?? 60;
   const failSeconds = thresholds.failSeconds ?? 600;
   const warnDeadLettered = thresholds.warnDeadLettered ?? 1;
 
   return {
-    name: 'outbox-lag',
+    name: queue.name,
     critical: false,
     async run() {
       const reading = await source.lag();
@@ -241,16 +262,14 @@ export function outboxLagCheck(
         return {
           status: 'fail',
           observedValue: observed,
-          detail:
-            `the oldest unpublished event is ${Math.round(age)}s old. The relay has stopped, ` +
-            'not slowed: no domain event has reached a consumer since then.',
+          detail: `the oldest undrained ${queue.item} is ${Math.round(age)}s old. ${queue.stalled}`,
         };
       }
       if (age >= warnSeconds) {
         return {
           status: 'warn',
           observedValue: observed,
-          detail: `the relay is ${Math.round(age)}s behind.`,
+          detail: `${Math.round(age)}s behind.`,
         };
       }
       if (reading.deadLettered >= warnDeadLettered) {
@@ -258,11 +277,49 @@ export function outboxLagCheck(
           status: 'warn',
           observedValue: observed,
           detail:
-            `${reading.deadLettered} event(s) are dead-lettered and will never be published ` +
-            'without a replay. Inspect and replay them.',
+            `${reading.deadLettered} ${queue.item}(s) are dead-lettered and will never be ` +
+            'delivered without a replay. Inspect and replay them.',
         };
       }
       return { status: 'pass', observedValue: observed };
     },
   };
 }
+
+/** Outbox relay lag (ADR-0007). */
+export const outboxLagCheck = (
+  source: QueueLagSource,
+  thresholds: QueueLagThresholds = {},
+): HealthCheck =>
+  queueLagCheck(
+    {
+      name: 'outbox-lag',
+      item: 'event',
+      stalled: 'The relay has stopped, not slowed: no domain event has reached a consumer since.',
+    },
+    source,
+    thresholds,
+  );
+
+/**
+ * Outbound message queue lag (migration 0016).
+ *
+ * Worth alerting on separately from the outbox even though both are drained by the same process:
+ * a stalled sender means invitations, password-change notices and payment warnings are not
+ * leaving the building, and that is visible to customers in a way a stalled relay is not.
+ */
+export const outboundMessageLagCheck = (
+  source: QueueLagSource,
+  thresholds: QueueLagThresholds = {},
+): HealthCheck =>
+  queueLagCheck(
+    {
+      name: 'outbound-message-lag',
+      item: 'message',
+      stalled:
+        'The sender has stopped: no invitation, security notice or billing warning has left ' +
+        'the product since.',
+    },
+    source,
+    thresholds,
+  );

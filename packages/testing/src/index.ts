@@ -45,4 +45,5 @@ export {
   type RlsFinding,
   TENANT_COLUMN,
   tenantScopedTables,
+  unreadableTables,
 } from './pg/structural.js';

@@ -26,11 +26,13 @@
     "pg": "8.16.3",
     "@growth-os/db": "workspace:*",
     "@growth-os/authn": "workspace:*",
-    "@growth-os/audit": "workspace:*"
+    "@growth-os/audit": "workspace:*",
+    "@growth-os/notifications": "workspace:*"
   },
   "devDependencies": {
     "vitest": "5.0.0",
     "@types/pg": "8.23.1",
-    "@growth-os/testing": "workspace:*"
+    "@growth-os/testing": "workspace:*",
+    "@growth-os/events": "workspace:*"
   }
 }

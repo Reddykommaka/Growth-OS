@@ -12,6 +12,10 @@ export {
 } from './actor-resolver.js';
 export { createApiKeyRepository } from './api-key-repository.js';
 export {
+  createInvitationNotifier,
+  type InvitationNotifierDependencies,
+} from './invitation-notifier.js';
+export {
   createInvitationRepository,
   createMembershipWriter,
   createOrganizationReader,

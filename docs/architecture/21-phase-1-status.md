@@ -522,6 +522,93 @@ outage it avoids.
 Verified by mutation: granting the lock unconditionally, continuing past a failure, granting the
 application UPDATE, and widening the relay's grants each fail a test.
 
+### Platform notifications, and invitation delivery (1.19)
+
+Two tables, not one, because the halves address different things and need different privileges
+(migration 0016):
+
+- `notifications` — an in-app row for a user who already exists.
+- `outbound_messages` — a rendered, SEALED message for a channel address, which may belong to
+  nobody. An invitation is sent to an address precisely because there is no account yet.
+
+Collapsing them would force one of two bad outcomes: either an invitation needs a user row before
+it can be sent, or the inbox carries an addressee that is not a user.
+
+**A notification is personal, and the read rule says so.** The policy is
+`organization_id = current AND recipient_user_id = app_current_user_id()`. Without the recipient
+clause any member could read every member's inbox with raw SQL — and a notification names things by
+reference, so an inbox is a readable index of everything happening in the organization. There is
+deliberately no administrative override: an owner already has the audit log for anything they
+legitimately need to investigate, and an override here would make the inbox a surveillance surface
+with none of the audit log's tamper-evidence.
+
+The WRITE rule is wider and cannot be otherwise — notifying somebody else is the entire operation.
+Three things bound the resulting surface, none of them RLS: the type catalogue is code so a
+notification can only say what a declared type can say; `actor_user_id` makes a fabricated one
+attributable; and `notify` is not reachable from user input.
+
+**`INSERT ... RETURNING` is unusable on both tables, for two different reasons.** PostgreSQL applies
+the SELECT policy to a RETURNING clause, so on `notifications` it fails for every notification not
+addressed to the session writing it; on `outbound_messages` the application holds no SELECT at all.
+Both ids are therefore generated before the statement. The shared principle: a row this session may
+write is not a row it may read.
+
+**The token problem, which shaped the whole package.** An invitation mail must carry a single-use
+token that exists only in memory (ADR-0018 stores its hash). Three routes existed and two are wrong:
+
+1. Send inline — refused by 01 §4, and the dual-write bug besides.
+2. Put the token on the outbox event — **refused, and this is the one that matters.**
+   `outbox_events` is readable by every session in the organization under its policy, so any member
+   could lift another member's invitation token out of the queue and accept in their place.
+   `@growth-os/events` rejects a payload carrying a token for exactly this reason.
+3. Render inside the transaction, seal with AES-256-GCM under a key the database never holds, and
+   queue. The application role may INSERT and not SELECT, so it stages a message it cannot read
+   back; the event carries only the row's id.
+
+Route 3 is the only one where the token reaches the recipient and nothing else. A structural sweep
+searches every text and jsonb column in the schema for the token in plaintext and requires zero
+hits, so a future migration that logs the delivery is caught without anyone remembering to extend
+the test.
+
+**The whole envelope is encrypted, not just the body.** Encrypting the body alone would leave the
+recipient address in plaintext, and the address is both PII and exactly what an attacker needs in
+order to know which queued token is worth stealing. `type` is the one deliberate exception: the
+sender routes on it and an operator answers "are invitations going out" with it.
+
+**Header injection is a validated failure, not a rendering concern.** A queued message is rendered
+into SMTP headers by the sender, so a newline in a subject or an address is a header of the
+attacker's choosing. The envelope is validated on the way in AND on the way out — a message sealed
+by an older build must not be delivered under rules that build did not have.
+
+**The sender is deliberately NOT the relay.** Same claim-send-mark shape, same dead-letter
+threshold, one decision reversed: mail has no ordering guarantee to preserve, so a failure must not
+block the queue behind it. The relay stops an organization at its first failure because publishing
+event 3 after event 2 failed would break the guarantee it exists to make; doing that here would let
+one undeliverable address hold up every other tenant's mail. A decryption failure is terminal rather
+than retryable, because a wrong key fails identically every time and retrying would bury a
+key-rotation mistake under a growing queue.
+
+`outbound-message-lag` joins `outbox-lag` as a non-critical readiness check, from one shared
+implementation so the two queues cannot drift apart in how they are monitored.
+
+**Deliberately out of scope:** per-user, per-type channel preferences. The architecture requires a
+channel-agnostic service, and the type catalogue supplies the channels. A preference table is a
+product feature, and it needs a decision this work item has no basis for — which notices may be
+switched off. The catalogue records `mandatory` per type so that decision has somewhere to land, and
+every mandatory type has a channel that leaves the product, because a mandatory notice delivered
+only in-app is one an attacker simply does not open.
+
+Verified by mutation: dropping the recipient clause, granting the application SELECT on the queue,
+forwarding the caller's payload onto the domain event, and giving the sender the relay's stop-on-
+failure semantics each fail a test.
+
+### Still open after 1.19
+
+- **Nothing drains either queue on a schedule.** `relayOnce` and `sendOnce` are functions;
+  `apps/worker` still has no runtime. An invitation is created, committed and queued — and sits
+  there. This is now the single largest gap in Phase 1, and it blocks the observable behaviour of
+  every feature that notifies anyone.
+
 ### Still open after 1.18
 
 - **Nothing consumes the events yet.** The relay is a function, not a process: `apps/worker` has

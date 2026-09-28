@@ -25,6 +25,9 @@
     },
     {
       "path": "../../platform/authn"
+    },
+    {
+      "path": "../../platform/notifications"
     }
   ]
 }

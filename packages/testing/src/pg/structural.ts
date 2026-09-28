@@ -134,6 +134,15 @@ export interface IsolationProbeResult {
    * and "nothing leaked because the statement was refused" are different facts.
    */
   readonly mutationsRefusedByPrivilege?: readonly string[];
+  /**
+   * Set when the SELECT itself was refused by a missing GRANT.
+   *
+   * Stronger again: `outbound_messages` carries invitation tokens sealed for a worker, and the
+   * application role holds INSERT and no SELECT — so there is no statement for a leak to travel
+   * through. Recorded distinctly for the same reason as the line above: a table quietly losing
+   * the grant must not look identical to a policy doing its job.
+   */
+  readonly selectRefusedByPrivilege?: boolean;
 }
 
 /** PostgreSQL's insufficient_privilege — what an RLS WITH CHECK rejection raises. */
@@ -185,13 +194,33 @@ export async function probeCrossTenantAccess(
     // `organizations` carries its tenant in `id`; every other table in `organization_id`.
     const tenantColumn = tenantColumnFor(table);
 
-    const read = await client.query(`SELECT 1 FROM ${table} WHERE ${tenantColumn} = $1`, [
-      organizationB,
-    ]);
-    // An append-only table has no UPDATE or DELETE grant at all, so the statement is refused
-    // before any row is considered. That must be reported as the stronger guarantee it is,
-    // not crash the sweep — which is what happened the first time such a table was added.
+    // An append-only table has no UPDATE or DELETE grant at all, and `outbound_messages` has no
+    // SELECT either, so the statement is refused before any row is considered. That must be
+    // reported as the stronger guarantee it is, not crash the sweep — which is what happened the
+    // first time such a table was added.
     const refusedByPrivilege: string[] = [];
+
+    /*
+     * A table the application cannot read AT ALL is the strongest possible answer to "does it
+     * leak": there is no statement to leak through. Recorded rather than silently skipped,
+     * because a table QUIETLY losing SELECT would otherwise look identical to one whose policy is
+     * doing the work — and if the grant came back, nothing would say so.
+     */
+    let selectRefusedByPrivilege = false;
+    let readRows = 0;
+    try {
+      const read = await client.query(`SELECT 1 FROM ${table} WHERE ${tenantColumn} = $1`, [
+        organizationB,
+      ]);
+      readRows = read.rowCount ?? 0;
+    } catch (error) {
+      if (!isPermissionDenied(error)) throw error;
+      // The failed statement aborts the transaction; the probe continues in a clean one.
+      await client.query('ROLLBACK');
+      await client.query('BEGIN');
+      await client.query('SELECT set_config($1, $2, true)', ['app.organization_id', organizationA]);
+      selectRefusedByPrivilege = true;
+    }
     const mutate = async (sql: string, label: string): Promise<number> => {
       const savepoint = `probe_${label}`;
       await client.query(`SAVEPOINT ${savepoint}`);
@@ -254,7 +283,8 @@ export async function probeCrossTenantAccess(
 
     return {
       table,
-      selectLeaked: read.rowCount ?? 0,
+      selectLeaked: readRows,
+      ...(selectRefusedByPrivilege ? { selectRefusedByPrivilege: true } : {}),
       updateLeaked: updated,
       deleteLeaked: deleted,
       ...(refusedByPrivilege.length === 0
@@ -293,14 +323,47 @@ export async function checkFailsClosedWithoutContext(appPool: Pool): Promise<str
       // Scoping the probe to non-NULL tenant values keeps this precise rather than adding a
       // table-level exemption, which would stop the check seeing a real leak on the same
       // table. For every table whose tenant column is NOT NULL, this is no weaker at all.
-      const result = await client.query(
-        `SELECT 1 FROM ${table} WHERE ${tenantColumn} IS NOT NULL LIMIT 1`,
-      );
-      if ((result.rowCount ?? 0) > 0) leaking.push(table);
+      const savepoint = `closed_${table.replace(/[^a-z0-9_]/gi, '')}`;
+      await client.query(`SAVEPOINT ${savepoint}`);
+      try {
+        const result = await client.query(
+          `SELECT 1 FROM ${table} WHERE ${tenantColumn} IS NOT NULL LIMIT 1`,
+        );
+        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+        if ((result.rowCount ?? 0) > 0) leaking.push(table);
+      } catch (error) {
+        await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        // A table the application cannot SELECT cannot leak through one. That is stronger than
+        // failing closed, not weaker — see `unreadableTables`, which asserts the set of such
+        // tables so one losing or gaining the grant is never silent.
+        if (!isPermissionDenied(error)) throw error;
+      }
     }
   } finally {
     await client.query('ROLLBACK').catch(() => undefined);
     client.release();
   }
   return leaking;
+}
+
+/**
+ * Tenant-scoped tables the application role cannot SELECT at all.
+ *
+ * `outbound_messages` is the one: it carries invitation tokens sealed for a worker, and the
+ * application stages a message it may not read back (migration 0016). The set is returned rather
+ * than assumed so a test can assert it by EQUALITY — a table quietly gaining SELECT is a
+ * privilege widening, and a table quietly losing it is a broken feature, and neither should be
+ * discoverable only by someone noticing.
+ */
+export async function unreadableTables(appPool: Pool): Promise<string[]> {
+  const tables = await tenantScopedTables(appPool);
+  const unreadable: string[] = [];
+  for (const table of tables) {
+    const granted = await appPool.query<{ has: boolean }>(
+      `SELECT has_table_privilege(current_user, $1, 'SELECT') AS has`,
+      [table],
+    );
+    if (granted.rows[0]?.has !== true) unreadable.push(table);
+  }
+  return unreadable;
 }

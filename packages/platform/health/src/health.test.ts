@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   databaseCheck,
+  outboundMessageLagCheck,
   outboxLagCheck,
   partitionHeadroomCheck,
   redisCheck,
@@ -263,6 +264,40 @@ describe('outbox lag', () => {
     expect(check.critical).toBe(false);
     const report = await runReadiness({ checks: [check], version });
     expect(report.status).toBe('warn');
+    expect(readinessHttpStatus(report)).toBe(200);
+  });
+});
+
+describe('outbound message lag', () => {
+  const signal = () => new AbortController().signal;
+  const lagSource = (pending: number, oldestSeconds: number | null, deadLettered = 0) => ({
+    lag: async () => ({ pending, oldestSeconds, deadLettered }),
+  });
+
+  it('is a separate check from the outbox, with its own name', async () => {
+    // Both queues are drained by the same process, but a stalled SENDER is visible to customers —
+    // invitations, security notices and payment warnings stop leaving the building — in a way a
+    // stalled relay is not. One combined check could not say which had happened.
+    expect(outboundMessageLagCheck(lagSource(0, null)).name).toBe('outbound-message-lag');
+    expect(outboxLagCheck(lagSource(0, null)).name).toBe('outbox-lag');
+  });
+
+  it('says what a full stall means for the customer', async () => {
+    const result = await outboundMessageLagCheck(lagSource(4, 900)).run(signal());
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('left the product');
+  });
+
+  it('warns on dead-lettered messages even when the queue is empty', async () => {
+    const result = await outboundMessageLagCheck(lagSource(0, null, 3)).run(signal());
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('message(s) are dead-lettered');
+  });
+
+  it('never removes a replica from service', async () => {
+    const check = outboundMessageLagCheck(lagSource(9_000, 86_400));
+    expect(check.critical).toBe(false);
+    const report = await runReadiness({ checks: [check], version });
     expect(readinessHttpStatus(report)).toBe(200);
   });
 });
