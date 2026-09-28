@@ -35,11 +35,13 @@ describe('structural check 2 — role posture', () => {
    * would silently hand a long-lived background process read access to tenant data.
    */
   it('the relay role reaches exactly the queues it drains', async () => {
-    // Both queues, and nothing else. The role is named after its first consumer but it is the
-    // worker's queue-draining role: relaying the outbox and sending the outbound queue are the
-    // same duty in the same process, and a second role for the second queue would add a
-    // credential to rotate while bounding nothing further.
+    // Three queues, and nothing else. The role is named after its first consumer but it is the
+    // worker's queue-draining role: relaying the outbox, sending the outbound queue and scanning
+    // uploaded files are the same duty in the same process, and a role per queue would add
+    // credentials to rotate while bounding nothing further. What bounds it is this list — asserted
+    // by EQUALITY, so a widened grant fails here rather than going unnoticed.
     expect(await bypassRlsRoleReach(db.pool, 'growth_os_relay')).toEqual([
+      'files',
       'outbound_messages',
       'outbox_events',
     ]);

@@ -34,6 +34,7 @@ the context, the choice, the alternatives, and the consequences we accepted.
 | [0019](0019-audit-in-transaction-not-outbox.md) | The audit row is written in the transaction, not through the outbox | Accepted |
 | [0020](0020-entitlements-are-capabilities.md) | Entitlements are capabilities resolved from scoped rules, not a plan tier | Accepted |
 | [0021](0021-partition-maintenance-in-the-deploy-pipeline.md) | Partition maintenance runs in the deploy pipeline; retention waits on archival | Accepted |
+| [0022](0022-files-verify-the-bytes-not-the-claim.md) | Files: verify the bytes, not the claim; S3 adapter and scanner deferred with conditions | Accepted |
 
 ADR-0003 was revised before acceptance to add the team layer, following the approved
 agency-first customer decision. ADRs 0013–0016 record decisions introduced by that same

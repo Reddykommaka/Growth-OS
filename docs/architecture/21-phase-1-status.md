@@ -602,6 +602,80 @@ Verified by mutation: dropping the recipient clause, granting the application SE
 forwarding the caller's payload onto the domain event, and giving the sender the relay's stop-on-
 failure semantics each fail a test.
 
+### Platform files (1.20)
+
+Recorded as [ADR-0022](../adr/0022-files-verify-the-bytes-not-the-claim.md). Bytes go straight to object
+storage and never proxy through an app server (02 §3), which means **the server never sees the upload
+happen** — and that one fact shapes the whole package. There is no moment at which a handler can inspect
+an arriving file; there is a before, in which the server decides what it will permit, and an after, in
+which it asks storage what actually turned up.
+
+**Every check runs twice, and neither pass is redundant.** `requestUpload` checks purpose, declared type,
+declared size and filename against the uploader's claims, for the price of one round trip.
+`finalizeUpload` asks storage for the real size, reads the first 64 bytes, and re-runs the same size and
+allowlist checks against the object. The first pass stops an over-cap upload before it reaches the bucket;
+the second is the only one that tests a fact.
+
+**The purpose is stored on the row, not re-derived.** An earlier draft guessed it at finalisation from the
+declared MIME type, which would have let a client reserve a 64 MB `import` and finalise a 512 MB `media`
+file — the second check would not have been the same check as the first.
+
+**The allowlist is positive and checked against bytes**, per 10 §3. The declared type is consulted for
+exactly one purpose — choosing between `text/csv` and `text/plain`, which are the same bytes — and can
+never widen what is accepted. Two findings came out of writing the tests:
+
+- Text must be **valid UTF-8**, not merely free of control characters. A printable-ASCII check accepts
+  every byte from 0x80 to 0xFF, so a binary blob would have stored as `text/plain`. Banning high bytes
+  outright would have refused every CSV containing a non-English name.
+- `RIFF` is a family, not a format. A single-signature check on it would have stored a WAV file as an
+  image, so WebP and MP4 each need two signatures.
+
+Markup is refused outright, SVG included: 10 §3 forbids rendering user-supplied SVG inline, and an SVG
+stored as `text/plain` is exactly how one gets rendered anyway.
+
+**The storage key is server-generated and the schema enforces its shape.** A client-influenced key — even
+one merely appended to a prefix — is a path-traversal primitive and a cross-tenant write, and the
+presigned URL would make the write legitimate. The `CHECK` constraint means a row with a hand-written key
+cannot exist even if a future code path stopped generating them.
+
+**`status` and `scan_status` are separate columns, and the application cannot write the second.** A file
+is usable only when it is `ready` AND `clean`, and `requestDownload` puts both in its `WHERE` clause. RLS
+cannot express "you may change these columns and not those", so the scan columns are withheld by a
+**column-level GRANT** — without it, a session could mark its own upload clean and have it served, which
+is the control from 10 §3 defeated by one statement the policy allows.
+
+**A rejection is a return value, not an exception**, and this was a real bug the tests found.
+`finalizeUpload` marks the row `rejected` inside the caller's transaction, so throwing rolled that mark
+back and left the row `reserved` forever while the caller reported a failure.
+
+**The ready-state constraint was wrong as first written.** It was an equivalence —
+`(status = 'ready') = (measured)` — which reads as the tighter statement and forbids a file from ever
+leaving `ready`, because a deleted or scanner-rejected row keeps the measurements it earned. Two
+implications are correct.
+
+`file-scan-backlog` is a readiness check, and deliberately not a `queueLagCheck`: for the outbox a stalled
+drainer means work is late, but here it means **uploads are unusable**, which is a different severity and
+fails at a much shorter age.
+
+### Still open after 1.20 — and blocked, not forgotten
+
+Both are recorded in ADR-0022 with explicit production acceptance conditions.
+
+- **No S3 adapter.** `StoragePort` has an in-memory implementation that the worker also uses in local
+  development; `packages/integrations/s3` does not exist, because there is no bucket and no credentials
+  here. The condition names six things it owes, the load-bearing one being that the presigned PUT
+  signature must cover `Content-Length` and `Content-Type` so the declared size and type are binding
+  rather than advisory.
+- **No scanner, and therefore no EXIF stripping.** Both require reading the bytes out of object storage,
+  so both are blocked on the same dependency. The acceptance condition requires a test that scans the
+  EICAR file and asserts `infected` — a scanner that has never returned `infected` has not been tested.
+
+**Until both hold, no upload is usable in production.** That is the designed failure mode rather than a
+broken one: an unscanned file has no download URL, so "no scanner" degrades to "nothing a customer uploads
+can be opened" rather than to "unscanned files are served", and the readiness check reports it as the
+visible product outage it would be. A no-op scanner that marked everything clean was considered and
+refused: it would satisfy every test while removing the control, invisibly.
+
 ### Still open after 1.19
 
 - **Nothing drains either queue on a schedule.** `relayOnce` and `sendOnce` are functions;

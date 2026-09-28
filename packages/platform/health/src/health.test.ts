@@ -9,6 +9,7 @@ import {
   outboxLagCheck,
   partitionHeadroomCheck,
   redisCheck,
+  scanBacklogCheck,
   schemaVersionCheck,
 } from './checks.js';
 import { type HealthCheck, readinessHttpStatus, runReadiness } from './index.js';
@@ -296,6 +297,52 @@ describe('outbound message lag', () => {
 
   it('never removes a replica from service', async () => {
     const check = outboundMessageLagCheck(lagSource(9_000, 86_400));
+    expect(check.critical).toBe(false);
+    const report = await runReadiness({ checks: [check], version });
+    expect(readinessHttpStatus(report)).toBe(200);
+  });
+});
+
+describe('file scan backlog', () => {
+  const signal = () => new AbortController().signal;
+  const backlogSource = (
+    awaiting: number,
+    oldestSeconds: number | null,
+    infected = 0,
+    failed = 0,
+  ) => ({ backlog: async () => ({ awaiting, oldestSeconds, infected, failed }) });
+
+  it('passes on an empty backlog', async () => {
+    const result = await scanBacklogCheck(backlogSource(0, null)).run(signal());
+    expect(result.status).toBe('pass');
+  });
+
+  it('fails sooner than a mail backlog would, because unscanned uploads are unusable', async () => {
+    // An unscanned file has no download URL, so a stopped scanner is a visible product outage rather
+    // than late work. The default fail threshold is therefore well below the mail queue's.
+    const result = await scanBacklogCheck(backlogSource(12, 400)).run(signal());
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('can be opened until it is scanned');
+  });
+
+  it('warns while the backlog is merely growing', async () => {
+    const result = await scanBacklogCheck(backlogSource(12, 90)).run(signal());
+    expect(result.status).toBe('warn');
+  });
+
+  it('warns on failed scans even when the backlog is empty', async () => {
+    // A failed scan leaves a file unusable with nothing retrying it. An infected one does not: that is
+    // the scanner working, and warning about it would train operators to ignore the check.
+    expect((await scanBacklogCheck(backlogSource(0, null, 0, 3)).run(signal())).status).toBe(
+      'warn',
+    );
+    expect((await scanBacklogCheck(backlogSource(0, null, 7, 0)).run(signal())).status).toBe(
+      'pass',
+    );
+  });
+
+  it('never removes a replica from service', async () => {
+    const check = scanBacklogCheck(backlogSource(500, 86_400));
     expect(check.critical).toBe(false);
     const report = await runReadiness({ checks: [check], version });
     expect(readinessHttpStatus(report)).toBe(200);

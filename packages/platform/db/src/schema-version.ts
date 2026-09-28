@@ -5,7 +5,7 @@
 // traffic when the database is BEHIND this version (12-devops-architecture.md §5).
 
 /** The newest migration this build knows about. */
-export const EXPECTED_SCHEMA_VERSION = '0016_notifications.sql';
+export const EXPECTED_SCHEMA_VERSION = '0017_files.sql';
 
 /** Every migration this build knows about, in application order. */
 export const KNOWN_MIGRATIONS: readonly string[] = [
@@ -25,4 +25,5 @@ export const KNOWN_MIGRATIONS: readonly string[] = [
   '0014_partition_maintenance.sql',
   '0015_outbox_events.sql',
   '0016_notifications.sql',
+  '0017_files.sql',
 ];
