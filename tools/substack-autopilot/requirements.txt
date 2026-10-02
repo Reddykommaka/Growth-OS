@@ -1,2 +1,0 @@
-anthropic>=1.11
-python-substack>=0.9

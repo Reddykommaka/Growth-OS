@@ -1,5 +1,0 @@
-__pycache__/
-.venv/
-# Never commit Substack session cookies (older versions of the script wrote them here).
-.cookies.json
-cookies.json
