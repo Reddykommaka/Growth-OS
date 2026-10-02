@@ -1,0 +1,2 @@
+# One topic per line. The first non-comment line is used on the next run, then removed.
+# When this file runs out, Claude picks a fresh topic that avoids recent titles.
